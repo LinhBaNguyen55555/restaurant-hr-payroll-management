@@ -1,0 +1,16 @@
+.references/
+**/node_modules/
+**/dist/
+**/target/
+**/data/
+**/.env
+**/.env.local
+**/test-results/
+**/playwright-report/
+*.log
+cookies.txt
+.idea/
+.vscode/
+*.tmp
+.DS_Store
+Thumbs.db

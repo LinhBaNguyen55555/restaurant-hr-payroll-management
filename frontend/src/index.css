@@ -1,0 +1,118 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+:root {
+  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+  color: #273d35;
+  background: #f7f9f7;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  font-size: 15px;
+  line-height: 1.5;
+  --bg: #f7f9f7;
+  --surface: #fff;
+  --surface-soft: #f7f9f7;
+  --ink: #273d35;
+  --muted: #87918b;
+  --line: #e8ece8;
+  --green: #39725c;
+  --green-dark: #28533f;
+  --mint: #edf4ee;
+  --shadow: 0 8px 32px #243d3507;
+  --hero: #eaf1e9;
+  --sidebar: #fff;
+  --field: #fff;
+  --peach: #f9ede3;
+  --violet: #efecf7;
+  --blue: #eaf1f7;
+}
+:root.dark {
+  color-scheme: dark;
+  --bg: #14241f;
+  --surface: #1d3028;
+  --surface-soft: #24392f;
+  --ink: #e2eae3;
+  --muted: #9eafa3;
+  --line: #34483b;
+  --green: #8fc5a4;
+  --green-dark: #94c7a7;
+  --mint: #293f31;
+  --hero: #2c4333;
+  --sidebar: #192a22;
+  --field: #233a2d;
+  --peach: #4c3e33;
+  --violet: #39354c;
+  --blue: #30424c;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-width: 360px;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+button {
+  color: inherit;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid #73ac87;
+  outline-offset: 4px;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #78a98a;
+  box-shadow: 0 0 0 3px #78a98a1e;
+}
+button {
+  background: none;
+  border: 0;
+}
+svg {
+  flex-shrink: 0;
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+b,
+strong {
+  font-weight: 600;
+}
+::selection {
+  background: #bedec5;
+  color: #233e2d;
+}
+input,
+select,
+textarea {
+  color: var(--ink);
+}
