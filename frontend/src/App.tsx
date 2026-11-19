@@ -815,25 +815,29 @@ function Application() {
       <Modal
         open={!!resetLink}
         onClose={() => setResetLink("")}
-        title="Einmal-Link zur Wiederherstellung"
-        description="Lokale Entwicklung · 30 Minuten gültig · sicher an die berechtigte Person übergeben"
+        title={lang === "vi" ? "Liên kết một lần để đặt lại mật khẩu" : "Einmal-Link zur Wiederherstellung"}
+        description={
+          lang === "vi"
+            ? "Môi trường phát triển · Có hiệu lực trong 30 phút · Chuyển an toàn cho người có thẩm quyền"
+            : "Lokale Entwicklung · 30 Minuten gültig · sicher an die berechtigte Person übergeben"
+        }
       >
         <div className="modal-body">
           <p>
-            Dieser Link erlaubt das Setzen eines neuen Passworts. Bestehende
-            Sitzungen werden danach ungültig. Der Authenticator bleibt
-            geschützt.
+            {lang === "vi"
+              ? "Liên kết này cho phép thiết lập mật khẩu mới. Các phiên đăng nhập hiện tại sẽ bị vô hiệu sau đó. Xác thực 2 lớp (MFA) vẫn được bảo vệ."
+              : "Dieser Link erlaubt das Setzen eines neuen Passworts. Bestehende Sitzungen werden danach ungültig. Der Authenticator bleibt geschützt."}
           </p>
           <div className="copy-box">
             <input readOnly value={resetLink} />
             <button
               className="icon-button"
-              aria-label="Link kopieren"
+              aria-label={lang === "vi" ? "Sao chép liên kết" : "Link kopieren"}
               onClick={() =>
                 navigator.clipboard
                   .writeText(resetLink)
-                  .then(() => setToast("Link kopiert."))
-                  .catch(() => setToast("Bitte den Link manuell kopieren."))
+                  .then(() => setToast(lang === "vi" ? "Đã sao chép liên kết." : "Link kopiert."))
+                  .catch(() => setToast(lang === "vi" ? "Vui lòng sao chép liên kết thủ công." : "Bitte den Link manuell kopieren."))
               }
             >
               <Copy size={18} />

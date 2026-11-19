@@ -321,14 +321,22 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
       {selectedEmployeeId && (
         <Modal
           open={true}
+          wide={true}
           title={detailData?.profile?.displayName || "Hồ sơ nhân viên"}
+          description={
+            lang === "vi"
+              ? "Chi tiết thông tin nhân sự, dòng thời gian hợp đồng và các điều kiện bảo vệ theo luật Đức."
+              : "Mitarbeiterdaten, Vertragshistorie und Schutzbestimmungen gemäß deutschem Arbeitsrecht."
+          }
           onClose={() => {
             setSelectedEmployeeId(null);
             setDetailData(null);
           }}
         >
           {detailLoading || !detailData ? (
-            <div className="py-12 text-center text-slate-400">Đang tải chi tiết hồ sơ...</div>
+            <div className="py-12 text-center text-slate-400 font-medium">
+              {lang === "vi" ? "Đang tải chi tiết hồ sơ..." : "Lade Profildaten..."}
+            </div>
           ) : (
             <div className="space-y-6">
               {/* Profile Card Header */}
@@ -528,6 +536,19 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
                   )}
                 </div>
               )}
+
+              <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-white/10">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedEmployeeId(null);
+                    setDetailData(null);
+                  }}
+                  className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 font-semibold text-slate-700 dark:text-slate-300 text-sm transition"
+                >
+                  {lang === "vi" ? "Đóng" : "Schließen"}
+                </button>
+              </div>
             </div>
           )}
         </Modal>
@@ -594,12 +615,20 @@ function AddEmployeeModal({
 
     // German MiLoG Validation
     if (payType === "HOURLY" && Number(hourlyWage) < 12.41) {
-      setError("Vi phạm luật tiền lương tối thiểu Đức (MiLoG): Mức lương giờ phải từ 12,41 € trở lên.");
+      setError(
+        lang === "vi"
+          ? "Vi phạm luật tiền lương tối thiểu Đức (MiLoG): Mức lương giờ phải từ 12,41 € trở lên."
+          : "Verstoß gegen das Mindestlohngesetz (MiLoG): Mindestens 12,41 €/Stunde erforderlich."
+      );
       return;
     }
 
     if (contractType === "MINIJOB" && monthlyWage && Number(monthlyWage) > 538) {
-      setError("Hợp đồng Minijob không được vượt quá mức trần 538,00 €/tháng theo luật Đức.");
+      setError(
+        lang === "vi"
+          ? "Hợp đồng Minijob không được vượt quá mức trần 538,00 €/tháng theo luật Đức."
+          : "Minijob-Vergütung darf 538,00 €/Monat nicht überschreiten."
+      );
       return;
     }
 
@@ -629,193 +658,258 @@ function AddEmployeeModal({
   };
 
   return (
-    <Modal open={true} title="Thêm nhân viên mới" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-4">
+    <Modal
+      open={true}
+      wide={true}
+      title={lang === "vi" ? "Thêm nhân viên mới" : "Neuen Mitarbeiter anlegen"}
+      description={
+        lang === "vi"
+          ? "Nhập hồ sơ cá nhân, phân công vị trí và thiết lập hợp đồng lao động tuân thủ luật Đức (MiLoG / ArbZG)."
+          : "Stammdaten, Einsatzort und Vertragsdaten gemäß deutschem Arbeitsrecht erfassen."
+      }
+      onClose={onClose}
+    >
+      <form onSubmit={submit} className="space-y-6 pt-1">
         {error && (
-          <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-300 text-sm">
-            {error}
+          <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 text-sm font-medium flex items-center gap-2">
+            <AlertTriangle size={17} className="shrink-0" />
+            <span>{error}</span>
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Mã nhân sự *</label>
-            <input
-              type="text"
-              placeholder="E-0011"
-              required
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40"
-            />
+        {/* Section 1: Thông tin cá nhân */}
+        <div className="p-4 rounded-xl border border-slate-200 dark:border-emerald-900/40 bg-slate-50/50 dark:bg-emerald-950/20 space-y-4">
+          <div className="text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-400 flex items-center gap-1.5 pb-2 border-b border-slate-200/80 dark:border-emerald-900/40">
+            <Users size={14} />
+            <span>{lang === "vi" ? "1. Thông tin cá nhân & Liên lạc" : "1. Persönliche Stammdaten"}</span>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Tên *</label>
-            <input
-              type="text"
-              placeholder="Max"
-              required
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40"
-            />
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                {lang === "vi" ? "Mã nhân sự *" : "Personalnummer *"}
+              </label>
+              <input
+                type="text"
+                placeholder="E-0011"
+                required
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
+              />
+            </div>
+            <div>
+              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                {lang === "vi" ? "Tên *" : "Vorname *"}
+              </label>
+              <input
+                type="text"
+                placeholder="Max"
+                required
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
+              />
+            </div>
+            <div>
+              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                {lang === "vi" ? "Họ *" : "Nachname *"}
+              </label>
+              <input
+                type="text"
+                placeholder="Mustermann"
+                required
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Họ *</label>
-            <input
-              type="text"
-              placeholder="Mustermann"
-              required
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40"
-            />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                {lang === "vi" ? "Email liên lạc" : "E-Mail-Adresse"}
+              </label>
+              <input
+                type="email"
+                placeholder="max.mustermann@restaurant.example"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
+              />
+            </div>
+            <div>
+              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                {lang === "vi" ? "Ngày sinh (YYYY-MM-DD)" : "Geburtsdatum"}
+              </label>
+              <input
+                type="date"
+                value={dob}
+                onChange={(e) => setDob(e.target.value)}
+                className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
+              />
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Email liên lạc</label>
-            <input
-              type="email"
-              placeholder="max.mustermann@restaurant.example"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40"
-            />
+        {/* Section 2: Vị trí & Chi nhánh */}
+        <div className="p-4 rounded-xl border border-slate-200 dark:border-emerald-900/40 bg-slate-50/50 dark:bg-emerald-950/20 space-y-4">
+          <div className="text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-400 flex items-center gap-1.5 pb-2 border-b border-slate-200/80 dark:border-emerald-900/40">
+            <Building size={14} />
+            <span>{lang === "vi" ? "2. Chi nhánh & Vị trí đảm nhiệm" : "2. Einsatzort & Rolle"}</span>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Ngày sinh (YYYY-MM-DD)</label>
-            <input
-              type="date"
-              value={dob}
-              onChange={(e) => setDob(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40"
-            />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                {lang === "vi" ? "Chi nhánh làm việc *" : "Stammniederlassung *"}
+              </label>
+              <select
+                value={branchId}
+                onChange={(e) => setBranchId(e.target.value)}
+                className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
+              >
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name} ({b.city})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                {lang === "vi" ? "Vị trí đảm nhận *" : "Position *"}
+              </label>
+              <select
+                value={positionId}
+                onChange={(e) => setPositionId(Number(e.target.value))}
+                className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
+              >
+                {positions.map((p) => (
+                  <option key={p.positionId} value={p.positionId}>
+                    {formatPosition(p.positionNameDe, lang)} ({p.positionNameDe})
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Chi nhánh làm việc</label>
-            <select
-              value={branchId}
-              onChange={(e) => setBranchId(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40"
-            >
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
+        {/* Section 3: Hợp đồng & Lương */}
+        <div className="p-4 rounded-xl border border-slate-200 dark:border-emerald-900/40 bg-slate-50/50 dark:bg-emerald-950/20 space-y-4">
+          <div className="text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-400 flex items-center gap-1.5 pb-2 border-b border-slate-200/80 dark:border-emerald-900/40">
+            <Euro size={14} />
+            <span>{lang === "vi" ? "3. Hợp đồng lao động & Tiền lương" : "3. Arbeitsvertrag & Vergütung"}</span>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Vị trí đảm nhận</label>
-            <select
-              value={positionId}
-              onChange={(e) => setPositionId(Number(e.target.value))}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40"
-            >
-              {positions.map((p) => (
-                <option key={p.positionId} value={p.positionId}>
-                  {formatPosition(p.positionNameDe, lang)} ({p.positionNameDe})
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
 
-        <div className="grid grid-cols-3 gap-3 border-t border-slate-100 dark:border-emerald-900/40 pt-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Loại hợp đồng</label>
-            <select
-              value={contractType}
-              onChange={(e) => setContractType(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40"
-            >
-              <option value="UNLIMITED">Không thời hạn (UNLIMITED)</option>
-              <option value="FIXED_TERM">Có thời hạn (FIXED_TERM)</option>
-              <option value="MINIJOB">Minijob (≤538€)</option>
-              <option value="PROBATION">Thử việc (PROBATION)</option>
-            </select>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                {lang === "vi" ? "Loại hợp đồng *" : "Vertragsart *"}
+              </label>
+              <select
+                value={contractType}
+                onChange={(e) => setContractType(e.target.value)}
+                className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
+              >
+                <option value="UNLIMITED">{lang === "vi" ? "Không thời hạn (Unbefristet)" : "Unbefristet"}</option>
+                <option value="FIXED_TERM">{lang === "vi" ? "Có thời hạn (Befristet)" : "Befristet"}</option>
+                <option value="MINIJOB">Minijob (≤ 538 €)</option>
+                <option value="PROBATION">{lang === "vi" ? "Thử việc (Probezeit)" : "Probezeit"}</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                {lang === "vi" ? "Hình thức lương *" : "Vergütungsmodell *"}
+              </label>
+              <select
+                value={payType}
+                onChange={(e) => setPayType(e.target.value)}
+                className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
+              >
+                <option value="HOURLY">{lang === "vi" ? "Theo giờ (Stundenlohn)" : "Stundenlohn"}</option>
+                <option value="MONTHLY">{lang === "vi" ? "Theo tháng (Monatsgehalt)" : "Monatsgehalt"}</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                {payType === "HOURLY"
+                  ? (lang === "vi" ? "Mức lương giờ (€/h) *" : "Stundenlohn (€) *")
+                  : (lang === "vi" ? "Lương tháng (€/tháng) *" : "Monatsgehalt (€) *")}
+              </label>
+              {payType === "HOURLY" ? (
+                <input
+                  type="number"
+                  step="0.01"
+                  min="12.41"
+                  required
+                  value={hourlyWage}
+                  onChange={(e) => setHourlyWage(e.target.value)}
+                  className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
+                />
+              ) : (
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={monthlyWage}
+                  onChange={(e) => setMonthlyWage(e.target.value)}
+                  className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
+                />
+              )}
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Hình thức lương</label>
-            <select
-              value={payType}
-              onChange={(e) => setPayType(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40"
-            >
-              <option value="HOURLY">Theo giờ (HOURLY)</option>
-              <option value="MONTHLY">Theo tháng (MONTHLY)</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">
-              {payType === "HOURLY" ? "Mức lương giờ (€/h) *" : "Lương tháng (€/tháng) *"}
-            </label>
-            {payType === "HOURLY" ? (
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                {lang === "vi" ? "Ngày tuyển dụng / Bắt đầu *" : "Eintrittsdatum *"}
+              </label>
+              <input
+                type="date"
+                required
+                value={hireDate}
+                onChange={(e) => setHireDate(e.target.value)}
+                className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
+              />
+            </div>
+            <div>
+              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                {lang === "vi" ? "Giờ làm việc tuần (giờ)" : "Wochenstunden"}
+              </label>
               <input
                 type="number"
-                step="0.01"
-                min="12.41"
-                required
-                value={hourlyWage}
-                onChange={(e) => setHourlyWage(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40"
+                min="1"
+                max="60"
+                value={weeklyHours}
+                onChange={(e) => setWeeklyHours(Number(e.target.value))}
+                className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
               />
-            ) : (
-              <input
-                type="number"
-                step="0.01"
-                required
-                value={monthlyWage}
-                onChange={(e) => setMonthlyWage(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40"
-              />
-            )}
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Ngày tuyển dụng *</label>
-            <input
-              type="date"
-              required
-              value={hireDate}
-              onChange={(e) => setHireDate(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Giờ làm việc tuần (giờ)</label>
-            <input
-              type="number"
-              min="1"
-              max="60"
-              value={weeklyHours}
-              onChange={(e) => setWeeklyHours(Number(e.target.value))}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40"
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-2 pt-4">
+        {/* Action Footer */}
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-emerald-900/40">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 text-slate-600 dark:text-slate-300"
+            className="px-5 py-2.5 rounded-xl border border-slate-300 dark:border-emerald-800 bg-white dark:bg-emerald-950/60 text-slate-700 dark:text-emerald-200 font-semibold text-sm hover:bg-slate-100 dark:hover:bg-emerald-900/40 shadow-xs transition cursor-pointer"
           >
-            Hủy bỏ
+            {lang === "vi" ? "Hủy bỏ" : "Abbrechen"}
           </button>
           <button
             type="submit"
             disabled={busy}
-            className="px-4 py-2 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium"
+            className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-sm shadow-md shadow-emerald-700/20 hover:shadow-lg transition cursor-pointer flex items-center gap-2 disabled:opacity-50"
           >
-            {busy ? "Đang lưu..." : "Tạo hồ sơ"}
+            <UserPlus size={16} />
+            <span>
+              {busy
+                ? (lang === "vi" ? "Đang lưu..." : "Wird gespeichert...")
+                : (lang === "vi" ? "Tạo hồ sơ nhân viên" : "Mitarbeiter anlegen")}
+            </span>
           </button>
         </div>
       </form>
@@ -824,6 +918,7 @@ function AddEmployeeModal({
 }
 
 function ImportCsvModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const { lang } = useI18n();
   const [csvText, setCsvText] = useState(
     `employee_code,first_name,last_name,email,date_of_birth,hire_date,branch_id,position_id,contract_type,pay_type,weekly_hours,hourly_wage,monthly_wage\nE-0020,Johannes,Klein,johannes.klein@restaurant.example,1995-04-12,2026-03-01,1,2,UNLIMITED,HOURLY,40,14.50,\nE-0021,Clara,Schulz,clara.schulz@restaurant.example,2002-08-25,2026-03-01,1,4,MINIJOB,HOURLY,10,13.00,520.00`
   );
@@ -851,41 +946,64 @@ function ImportCsvModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
   };
 
   return (
-    <Modal open={true} title="Nhập danh sách nhân sự (CSV/Excel)" onClose={onClose}>
-      <div className="space-y-4">
-        <div className="text-xs text-slate-500 dark:text-slate-400">
-          Định dạng: <code>employee_code,first_name,last_name,email,date_of_birth,hire_date,branch_id,position_id,contract_type,pay_type,weekly_hours,hourly_wage,monthly_wage</code>
+    <Modal
+      open={true}
+      wide={true}
+      title={lang === "vi" ? "Nhập danh sách nhân sự (CSV/Excel)" : "Mitarbeiter importieren (CSV)"}
+      description={
+        lang === "vi"
+          ? "Tải lên hoặc dán danh sách nhân viên theo định dạng chuẩn. Có chế độ kiểm tra trước (Dry-Run) để phát hiện lỗi."
+          : "Mitarbeiterdaten im CSV-Format importieren. Mit Vorabprüfung (Dry-Run)."
+      }
+      onClose={onClose}
+    >
+      <div className="space-y-4 pt-1">
+        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/40 bg-slate-50/50 dark:bg-emerald-950/20 text-xs text-slate-600 dark:text-slate-300">
+          <div className="font-semibold text-slate-800 dark:text-slate-100 mb-1">
+            {lang === "vi" ? "Cấu trúc cột dữ liệu yêu cầu:" : "Erforderliches Spaltenformat:"}
+          </div>
+          <code className="text-emerald-700 dark:text-emerald-300 break-all font-mono text-[11px]">
+            employee_code,first_name,last_name,email,date_of_birth,hire_date,branch_id,position_id,contract_type,pay_type,weekly_hours,hourly_wage,monthly_wage
+          </code>
         </div>
 
         <textarea
           rows={8}
           value={csvText}
           onChange={(e) => setCsvText(e.target.value)}
-          className="w-full p-3 font-mono text-xs rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40 text-slate-800 dark:text-slate-200 focus:outline-none"
+          className="w-full p-3.5 font-mono text-xs rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
         />
 
         {/* Results summary */}
         {result && (
           <div
-            className={`p-3.5 rounded-lg border text-sm ${
+            className={`p-4 rounded-xl border text-sm ${
               result.errorRows > 0
-                ? "bg-amber-50 dark:bg-amber-950/40 border-amber-200 text-amber-900 dark:text-amber-200"
-                : "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 text-emerald-900 dark:text-emerald-200"
+                ? "bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-900/60 text-amber-900 dark:text-amber-200"
+                : "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-900/60 text-emerald-900 dark:text-emerald-200"
             }`}
           >
-            <div className="font-semibold flex items-center gap-2">
-              {result.errorRows === 0 ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-              {dryRun ? "Kết quả kiểm tra (Dry-Run Preview):" : "Kết quả nhập dữ liệu:"}
+            <div className="font-bold flex items-center gap-2">
+              {result.errorRows === 0 ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+              {dryRun
+                ? (lang === "vi" ? "Kết quả kiểm tra trước (Dry-Run Preview):" : "Prüfergebnis (Dry-Run):")
+                : (lang === "vi" ? "Kết quả nhập dữ liệu:" : "Importergebnis:")}
             </div>
-            <div className="text-xs mt-1">
-              Tổng số dòng: {result.totalRows} • Hợp lệ: {result.successRows} • Lỗi: {result.errorRows}
+            <div className="text-xs mt-1.5 font-medium">
+              {lang === "vi"
+                ? `Tổng số dòng: ${result.totalRows} • Hợp lệ: ${result.successRows} • Lỗi: ${result.errorRows}`
+                : `Gesamtzeilen: ${result.totalRows} • Gültig: ${result.successRows} • Fehler: ${result.errorRows}`}
             </div>
 
             {result.errors.length > 0 && (
-              <div className="mt-2.5 max-h-36 overflow-y-auto space-y-1 text-xs">
+              <div className="mt-3 max-h-40 overflow-y-auto space-y-1.5 text-xs">
                 {result.errors.map((err, i) => (
-                  <div key={i} className="text-red-600 dark:text-red-400">
-                    Dòng {err.lineNumber} [{err.fieldName}]: {err.errorMessageVi} (Giá trị: "{err.rawValue}")
+                  <div key={i} className="p-2 rounded-lg bg-white/60 dark:bg-black/20 text-red-700 dark:text-red-300">
+                    <span className="font-bold">
+                      {lang === "vi" ? `Dòng ${err.lineNumber}` : `Zeile ${err.lineNumber}`} [{err.fieldName}]:
+                    </span>{" "}
+                    {lang === "vi" ? err.errorMessageVi : err.errorMessageDe}
+                    {err.rawValue ? ` (Giá trị: "${err.rawValue}")` : ""}
                   </div>
                 ))}
               </div>
@@ -893,31 +1011,35 @@ function ImportCsvModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
           </div>
         )}
 
-        <div className="flex justify-between items-center pt-3 border-t border-slate-100 dark:border-emerald-900/40">
+        <div className="flex flex-wrap justify-between items-center gap-3 pt-4 border-t border-slate-200 dark:border-emerald-900/40">
           <button
             type="button"
             disabled={busy}
             onClick={() => runImport(true)}
-            className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-white dark:bg-emerald-950/40 text-slate-700 dark:text-emerald-200 hover:bg-slate-50"
+            className="px-5 py-2.5 text-sm font-semibold rounded-xl border border-slate-300 dark:border-emerald-800 bg-white dark:bg-emerald-950/40 text-slate-700 dark:text-emerald-200 hover:bg-slate-100 dark:hover:bg-emerald-900/40 shadow-xs transition cursor-pointer"
           >
-            {busy && dryRun ? "Đang kiểm tra..." : "Kiểm tra trước (Dry-Run)"}
+            {busy && dryRun
+              ? (lang === "vi" ? "Đang kiểm tra..." : "Wird geprüft...")
+              : (lang === "vi" ? "Kiểm tra trước (Dry-Run)" : "Vorabprüfung (Dry-Run)")}
           </button>
 
-          <div className="flex gap-2">
+          <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 text-slate-600 dark:text-slate-300"
+              className="px-5 py-2.5 text-sm font-semibold rounded-xl border border-slate-300 dark:border-emerald-800 bg-white dark:bg-emerald-950/60 text-slate-700 dark:text-emerald-200 hover:bg-slate-100 dark:hover:bg-emerald-900/40 shadow-xs transition cursor-pointer"
             >
-              Đóng
+              {lang === "vi" ? "Đóng" : "Schließen"}
             </button>
             <button
               type="button"
               disabled={busy || !csvText.trim()}
               onClick={() => runImport(false)}
-              className="px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"
+              className="px-6 py-2.5 text-sm font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white shadow-md shadow-emerald-700/20 transition cursor-pointer disabled:opacity-50"
             >
-              {busy && !dryRun ? "Đang xử lý..." : "Xác nhận nhập dữ liệu"}
+              {busy && !dryRun
+                ? (lang === "vi" ? "Đang xử lý..." : "Wird importiert...")
+                : (lang === "vi" ? "Xác nhận nhập dữ liệu" : "Daten importieren")}
             </button>
           </div>
         </div>
