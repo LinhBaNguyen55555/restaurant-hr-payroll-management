@@ -143,6 +143,7 @@ export function Modal({
   wide?: boolean;
   drawer?: boolean;
 }) {
+  const { lang } = useI18n();
   return (
     <Dialog.Root
       open={open}
@@ -160,10 +161,15 @@ export function Modal({
               <Dialog.Title className="modal-title">{title}</Dialog.Title>
               <Dialog.Description className="modal-description">
                 {description ||
-                  "Daten werden sicher in Ihrem Arbeitsbereich gespeichert."}
+                  (lang === "vi"
+                    ? "Dữ liệu được lưu trữ an toàn trong không gian làm việc của bạn."
+                    : "Daten werden sicher in Ihrem Arbeitsbereich gespeichert.")}
               </Dialog.Description>
             </div>
-            <Dialog.Close className="icon-button" aria-label="Schließen">
+            <Dialog.Close
+              className="icon-button"
+              aria-label={lang === "vi" ? "Đóng" : "Schließen"}
+            >
               <X size={19} />
             </Dialog.Close>
           </div>

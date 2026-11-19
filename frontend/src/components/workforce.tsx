@@ -22,6 +22,7 @@ import {
 } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { Modal } from "./experience";
+import { formatPosition } from "./scheduling";
 
 export function WorkforceView({ branches }: { branches: Branch[] }) {
   const { t, lang } = useI18n();
@@ -98,32 +99,22 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
 
   return (
     <div className="workforce-page">
-      {/* Header & Stats Cards */}
-      <div className="section-header-row">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            {t("nav.workforce")}
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {t("sub.workforce")}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowImportModal(true)}
-            className="flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-white dark:bg-emerald-950/40 text-slate-700 dark:text-emerald-200 hover:bg-slate-50 dark:hover:bg-emerald-900/50 shadow-sm transition"
-          >
-            <FileSpreadsheet size={16} className="text-emerald-500" />
-            <span>{t("wf.import_csv")}</span>
-          </button>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition"
-          >
-            <UserPlus size={16} />
-            <span>{t("wf.add_employee")}</span>
-          </button>
-        </div>
+      {/* Header & Actions */}
+      <div className="flex items-center justify-end gap-3 mb-4">
+        <button
+          onClick={() => setShowImportModal(true)}
+          className="flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-white dark:bg-emerald-950/40 text-slate-700 dark:text-emerald-200 hover:bg-slate-50 dark:hover:bg-emerald-900/50 shadow-sm transition"
+        >
+          <FileSpreadsheet size={16} className="text-emerald-500" />
+          <span>{t("wf.import_csv")}</span>
+        </button>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition"
+        >
+          <UserPlus size={16} />
+          <span>{t("wf.add_employee")}</span>
+        </button>
       </div>
 
       {/* KPI Cards */}
@@ -263,7 +254,7 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
                   </td>
                   <td className="py-3.5 px-4">
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 dark:bg-emerald-950/60 text-slate-700 dark:text-emerald-300">
-                      {lang === "vi" ? emp.positionNameEn || emp.positionCode : emp.positionNameDe || emp.positionCode || "—"}
+                      {formatPosition(emp.positionNameDe || emp.positionNameEn || emp.positionCode, lang)}
                     </span>
                   </td>
                   <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
@@ -433,7 +424,8 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
                   <div>
                     <span className="text-slate-400 block text-xs">Vị trí đảm nhiệm:</span>
                     <span className="font-medium text-slate-800 dark:text-slate-200">
-                      {detailData.profile?.positionNameDe} ({detailData.profile?.positionNameEn})
+                      {formatPosition(detailData.profile?.positionNameDe || detailData.profile?.positionNameEn, lang)}
+                      {detailData.profile?.positionNameDe ? ` (${detailData.profile.positionNameDe})` : ""}
                     </span>
                   </div>
                 </div>
@@ -579,6 +571,7 @@ function AddEmployeeModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { lang } = useI18n();
   const [code, setCode] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -726,7 +719,7 @@ function AddEmployeeModal({
             >
               {positions.map((p) => (
                 <option key={p.positionId} value={p.positionId}>
-                  {p.positionNameDe} ({p.positionNameEn})
+                  {formatPosition(p.positionNameDe, lang)} ({p.positionNameDe})
                 </option>
               ))}
             </select>

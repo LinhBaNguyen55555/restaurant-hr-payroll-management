@@ -2044,7 +2044,7 @@ export function Security({
   onUser,
   notify,
   onLogout,
-  data,
+  data: _data,
 }: {
   user: User;
   onUser: (u: User) => void;
@@ -2057,7 +2057,6 @@ export function Security({
   const [error, setError] = useState("");
   const [setup, setSetup] = useState(false);
   const [rotation, setRotation] = useState(false);
-  const [showSod, setShowSod] = useState(false);
   const [newSecret, setNewSecret] = useState<{
     secret: string;
     uri: string;
@@ -2139,7 +2138,7 @@ export function Security({
           </p>
           <div className="details-grid">
             <Detail label={lang === "vi" ? "Họ tên" : "Name"} value={user.name} />
-            <Detail label="E-Mail" value={user.email} />
+            <Detail label={lang === "vi" ? "Email" : "E-Mail"} value={user.email} />
           </div>
           <div className="role-tags">
             {user.roles.map((r) => (
@@ -2148,31 +2147,6 @@ export function Security({
               </span>
             ))}
           </div>
-          {data && (
-            <div style={{ marginTop: 14 }}>
-              <button
-                className="button button-secondary"
-                onClick={() => setShowSod(true)}
-                style={{
-                  fontSize: 13,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "8px 14px",
-                }}
-              >
-                <ShieldCheck size={16} />
-                {lang === "vi"
-                  ? "Ma trận phân quyền & SoD (F00 05)"
-                  : "Berechtigungsmatrix & SoD-Regeln"}
-              </button>
-              <SodModal
-                open={showSod}
-                onClose={() => setShowSod(false)}
-                data={data}
-              />
-            </div>
-          )}
           <p className="muted small">
             {lang === "vi"
               ? "Để đặt lại mật khẩu, bạn cần nhận liên kết dùng một lần từ Quản trị viên."

@@ -25,6 +25,36 @@ import {
 import { useI18n } from "../lib/i18n";
 import { Modal } from "./experience";
 
+const POSITION_NAMES_VI: Record<string, string> = {
+  "Koch/Köchin": "Đầu bếp",
+  "Koch": "Đầu bếp",
+  "Chef": "Bếp trưởng",
+  "Cook": "Đầu bếp",
+  "Servicekraft": "Phục vụ bàn",
+  "Server": "Phục vụ bàn",
+  "Waiter": "Phục vụ bàn",
+  "Barista": "Pha chế",
+  "Barkraft": "Pha chế",
+  "Barista / Barkraft": "Pha chế",
+  "Spülkraft": "Rửa bát / Phụ bếp",
+  "Küchenhilfe": "Phụ bếp",
+  "Spülkraft / Küchenhilfe": "Phụ bếp",
+  "Restaurantleitung": "Quản lý nhà hàng",
+  "Restaurant Manager": "Quản lý nhà hàng",
+  "Schichtleitung": "Trưởng ca",
+  "Shift Leader": "Trưởng ca",
+  "HR-Referent/in": "Chuyên viên nhân sự",
+  "HR Specialist": "Chuyên viên nhân sự",
+};
+
+export function formatPosition(name: string | undefined | null, lang: string): string {
+  if (!name) return lang === "vi" ? "Nhân viên" : "Mitarbeiter/in";
+  if (lang === "vi") {
+    return POSITION_NAMES_VI[name] || name;
+  }
+  return name;
+}
+
 export function SchedulingView({ branches }: { branches: Branch[] }) {
   const { t, lang } = useI18n();
   const [selectedBranchId, setSelectedBranchId] = useState<number>(() =>
@@ -166,44 +196,34 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
 
   return (
     <div className="scheduling-page">
-      {/* Top Header */}
-      <div className="section-header-row">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            {t("nav.scheduling")}
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {t("sub.scheduling")}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowSwapModal(true)}
-            className="flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-white dark:bg-emerald-950/40 text-slate-700 dark:text-emerald-200 hover:bg-slate-50 dark:hover:bg-emerald-900/50 shadow-sm transition"
-          >
-            <ArrowLeftRight size={16} className="text-emerald-500" />
-            <span>{t("sched.swaps")}</span>
-          </button>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-lg border border-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 transition"
-          >
-            <Plus size={16} />
-            <span>{t("sched.add_shift")}</span>
-          </button>
-          <button
-            onClick={openPublishModal}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition"
-          >
-            <Send size={16} />
-            <span>{t("sched.publish")}</span>
-            {draftCount > 0 && (
-              <span className="px-1.5 py-0.2 bg-emerald-800 text-white text-xs rounded-full">
-                {draftCount} nháp
-              </span>
-            )}
-          </button>
-        </div>
+      {/* Action Toolbar */}
+      <div className="flex items-center justify-end gap-3 mb-4">
+        <button
+          onClick={() => setShowSwapModal(true)}
+          className="flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-white dark:bg-emerald-950/40 text-slate-700 dark:text-emerald-200 hover:bg-slate-50 dark:hover:bg-emerald-900/50 shadow-sm transition"
+        >
+          <ArrowLeftRight size={16} className="text-emerald-500" />
+          <span>{t("sched.swaps")}</span>
+        </button>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-lg border border-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 transition"
+        >
+          <Plus size={16} />
+          <span>{t("sched.add_shift")}</span>
+        </button>
+        <button
+          onClick={openPublishModal}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition"
+        >
+          <Send size={16} />
+          <span>{t("sched.publish")}</span>
+          {draftCount > 0 && (
+            <span className="px-1.5 py-0.2 bg-emerald-800 text-white text-xs rounded-full">
+              {draftCount} {lang === "vi" ? "nháp" : "Entwürfe"}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Week Navigation & Branch Selector Bar */}
@@ -257,11 +277,11 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
         <div className="flex items-center gap-3 text-xs">
           <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-medium">
             <CheckCircle2 size={13} />
-            {publishedCount} Đã công bố
+            {publishedCount} {lang === "vi" ? "Đã công bố" : "Veröffentlicht"}
           </span>
           <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-medium">
             <Clock size={13} />
-            {draftCount} Bản nháp
+            {draftCount} {lang === "vi" ? "Bản nháp" : "Entwürfe"}
           </span>
         </div>
       </div>
@@ -356,7 +376,7 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
                                 : "bg-emerald-200 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200"
                             }`}
                           >
-                            {isDraft ? "Nháp" : "Đã duyệt"}
+                            {isDraft ? (lang === "vi" ? "Nháp" : "Entwurf") : (lang === "vi" ? "Đã duyệt" : "Bestätigt")}
                           </span>
                         </div>
 
@@ -365,8 +385,8 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
                         </div>
 
                         <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between mt-1">
-                          <span className="truncate">{shift.positionName || shift.templateName || "Nhân viên"}</span>
-                          <span>{shift.plannedBreakMinutes}m nghỉ</span>
+                          <span className="truncate">{formatPosition(shift.positionName || shift.templateName, lang)}</span>
+                          <span>{shift.plannedBreakMinutes}m {lang === "vi" ? "nghỉ" : "Pause"}</span>
                         </div>
                       </div>
                     );
@@ -374,7 +394,7 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
 
                   {dayShifts.length === 0 && (
                     <div className="h-full flex items-center justify-center py-10 text-slate-300 dark:text-emerald-950/80 text-xs">
-                      Trống
+                      {lang === "vi" ? "Trống" : "Frei"}
                     </div>
                   )}
                 </div>
@@ -441,6 +461,7 @@ function AddShiftModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { lang } = useI18n();
   const [employeeId, setEmployeeId] = useState<number>(employees[0]?.employeeId || 2);
   const [templateId, setTemplateId] = useState<number | null>(templates[0]?.templateId || null);
   const [shiftDate, setShiftDate] = useState(new Date().toISOString().slice(0, 10));
@@ -538,7 +559,7 @@ function AddShiftModal({
           >
             {employees.map((emp) => (
               <option key={emp.employeeId} value={emp.employeeId}>
-                {emp.displayName} ({emp.employeeCode}) • {emp.positionNameDe || "Nhân viên"}
+                {emp.displayName} ({emp.employeeCode}) • {formatPosition(emp.positionNameDe, lang)}
               </option>
             ))}
           </select>
@@ -764,6 +785,7 @@ function ShiftSwapCenterModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { lang } = useI18n();
   const [requests, setRequests] = useState<ShiftSwapRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"list" | "create">("list");
@@ -793,7 +815,7 @@ function ShiftSwapCenterModal({
   const approve = async (id: number) => {
     try {
       await api(`/scheduling/swap-requests/${id}/approve`, "POST", { reason: "Quản lý đã phê duyệt" });
-      alert("Đã phê duyệt đổi ca thành công!");
+      alert(lang === "vi" ? "Đã phê duyệt đổi ca thành công!" : "Schichttausch erfolgreich genehmigt!");
       loadRequests();
       onSuccess();
     } catch (e) {
@@ -804,7 +826,7 @@ function ShiftSwapCenterModal({
   const reject = async (id: number) => {
     try {
       await api(`/scheduling/swap-requests/${id}/reject`, "POST", { reason: "Không phù hợp điều kiện vận hành" });
-      alert("Đã từ chối yêu cầu đổi ca.");
+      alert(lang === "vi" ? "Đã từ chối yêu cầu đổi ca." : "Schichttausch abgelehnt.");
       loadRequests();
     } catch (e) {
       alert((e as Error).message);
@@ -820,7 +842,7 @@ function ShiftSwapCenterModal({
         targetEmployeeId,
         reason,
       });
-      alert("Đã gửi yêu cầu đổi ca tới đồng nghiệp!");
+      alert(lang === "vi" ? "Đã gửi yêu cầu đổi ca tới đồng nghiệp!" : "Tauschanfrage erfolgreich gesendet!");
       setActiveTab("list");
       loadRequests();
     } catch (e) {
@@ -831,7 +853,16 @@ function ShiftSwapCenterModal({
   };
 
   return (
-    <Modal open={true} title="Sàn Đổi ca & Quản lý Ca trực (Shift Swap Center)" onClose={onClose}>
+    <Modal
+      open={true}
+      title={lang === "vi" ? "Sàn đổi ca & Ca trực trống" : "Schichtbörse & Schichttausch"}
+      description={
+        lang === "vi"
+          ? "Nhân viên yêu cầu đổi ca trực hoặc đăng ký nhận ca trống. Quản lý kiểm tra điều kiện và xét duyệt tuân thủ ArbZG."
+          : "Mitarbeiter können Schichten tauschen oder freie Einsätze übernehmen. Prüfung gemäß ArbZG."
+      }
+      onClose={onClose}
+    >
       <div className="space-y-4">
         <div className="flex border-b border-slate-200 dark:border-emerald-800/40 gap-4 text-sm font-medium">
           <button
@@ -842,7 +873,7 @@ function ShiftSwapCenterModal({
             }`}
             onClick={() => setActiveTab("list")}
           >
-            Yêu cầu chờ duyệt ({requests.filter((r) => r.status === "PENDING").length})
+            {lang === "vi" ? "Yêu cầu chờ duyệt" : "Ausstehende Anfragen"} ({requests.filter((r) => r.status === "PENDING").length})
           </button>
           <button
             className={`pb-2 border-b-2 transition ${
@@ -852,64 +883,77 @@ function ShiftSwapCenterModal({
             }`}
             onClick={() => setActiveTab("create")}
           >
-            Gửi yêu cầu đổi ca mới
+            {lang === "vi" ? "Gửi yêu cầu đổi ca mới" : "Neuen Tausch anfragen"}
           </button>
         </div>
 
         {activeTab === "list" && (
           <div className="space-y-3 max-h-80 overflow-y-auto">
             {loading ? (
-              <div className="py-8 text-center text-slate-400">Đang tải danh sách...</div>
+              <div className="py-8 text-center text-slate-400">{lang === "vi" ? "Đang tải danh sách..." : "Lade Anfragen..."}</div>
             ) : requests.length === 0 ? (
               <div className="py-8 text-center text-slate-400 text-sm">
-                Hiện không có yêu cầu đổi ca nào.
+                {lang === "vi" ? "Hiện không có yêu cầu đổi ca nào." : "Keine offenen Tauschanfragen vorhanden."}
               </div>
             ) : (
-              requests.map((r) => (
-                <div
-                  key={r.swapRequestId}
-                  className="p-3.5 rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50/50 dark:bg-emerald-950/20 flex items-center justify-between text-xs"
-                >
-                  <div>
-                    <div className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                      <span>Ca ID: #{r.sourceShiftId}</span>
-                      <ArrowLeftRight size={13} className="text-emerald-500" />
-                      <span>Chuyển cho Nhân viên #{r.targetEmployeeId}</span>
+              requests.map((r) => {
+                const targetEmp = employees.find((e) => e.employeeId === r.targetEmployeeId);
+                const displayReason = r.reason === "Demo request to exchange a shift"
+                  ? (lang === "vi" ? "Thỏa thuận đổi ca cá nhân" : "Schichttausch nach Absprache")
+                  : (r.reason || (lang === "vi" ? "Thỏa thuận nội bộ" : "Interne Vereinbarung"));
+
+                return (
+                  <div
+                    key={r.swapRequestId}
+                    className="p-3.5 rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50/50 dark:bg-emerald-950/20 flex items-center justify-between text-xs"
+                  >
+                    <div>
+                      <div className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                        <span>Ca #{r.sourceShiftId}</span>
+                        <ArrowLeftRight size={13} className="text-emerald-500" />
+                        <span>
+                          {lang === "vi" ? "Chuyển cho" : "Übertragen an"}{" "}
+                          {targetEmp ? targetEmp.displayName : `#${r.targetEmployeeId}`}
+                        </span>
+                      </div>
+                      <div className="text-slate-500 dark:text-slate-400 mt-1">
+                        {lang === "vi" ? "Lý do: " : "Begründung: "}
+                        "{displayReason}"
+                      </div>
                     </div>
-                    <div className="text-slate-500 dark:text-slate-400 mt-1">
-                      Lý do: "{r.reason || "Thỏa thuận nội bộ"}"
+                    <div className="flex items-center gap-2">
+                      {r.status === "PENDING" ? (
+                        <>
+                          <button
+                            onClick={() => approve(r.swapRequestId)}
+                            className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+                          >
+                            {lang === "vi" ? "Duyệt" : "Genehmigen"}
+                          </button>
+                          <button
+                            onClick={() => reject(r.swapRequestId)}
+                            className="px-2.5 py-1 rounded border border-slate-200 dark:border-emerald-800/40 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-emerald-900/40"
+                          >
+                            {lang === "vi" ? "Từ chối" : "Ablehnen"}
+                          </button>
+                        </>
+                      ) : (
+                        <span
+                          className={`px-2 py-0.5 rounded font-semibold ${
+                            r.status === "APPROVED"
+                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300"
+                              : "bg-red-100 text-red-800 dark:bg-red-950/80 dark:text-red-300"
+                          }`}
+                        >
+                          {r.status === "APPROVED"
+                            ? (lang === "vi" ? "Đã duyệt" : "Genehmigt")
+                            : (lang === "vi" ? "Đã từ chối" : "Abgelehnt")}
+                        </span>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {r.status === "PENDING" ? (
-                      <>
-                        <button
-                          onClick={() => approve(r.swapRequestId)}
-                          className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
-                        >
-                          Duyệt
-                        </button>
-                        <button
-                          onClick={() => reject(r.swapRequestId)}
-                          className="px-2.5 py-1 rounded border border-slate-200 dark:border-emerald-800/40 text-slate-600 hover:bg-slate-100"
-                        >
-                          Từ chối
-                        </button>
-                      </>
-                    ) : (
-                      <span
-                        className={`px-2 py-0.5 rounded font-semibold ${
-                          r.status === "APPROVED"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-red-100 text-red-800"
-                        }`}
-                      >
-                        {r.status}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
@@ -917,7 +961,9 @@ function ShiftSwapCenterModal({
         {activeTab === "create" && (
           <form onSubmit={submitCreate} className="space-y-3">
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Ca cần đổi *</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">
+                {lang === "vi" ? "Ca cần đổi *" : "Zu tauschende Schicht *"}
+              </label>
               <select
                 value={sourceShiftId}
                 onChange={(e) => setSourceShiftId(Number(e.target.value))}
@@ -933,7 +979,9 @@ function ShiftSwapCenterModal({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Đổi với đồng nghiệp *</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">
+                {lang === "vi" ? "Đổi với đồng nghiệp *" : "Mit Kollege/in tauschen *"}
+              </label>
               <select
                 value={targetEmployeeId}
                 onChange={(e) => setTargetEmployeeId(Number(e.target.value))}
@@ -941,17 +989,19 @@ function ShiftSwapCenterModal({
               >
                 {employees.map((emp) => (
                   <option key={emp.employeeId} value={emp.employeeId}>
-                    {emp.displayName} ({emp.employeeCode}) • {emp.positionNameDe}
+                    {emp.displayName} ({emp.employeeCode}) • {formatPosition(emp.positionNameDe, lang)}
                   </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Lý do xin đổi ca</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">
+                {lang === "vi" ? "Lý do xin đổi ca" : "Begründung"}
+              </label>
               <input
                 type="text"
-                placeholder="Có việc bận gia đình / thỏa thuận trước..."
+                placeholder={lang === "vi" ? "Có việc bận gia đình / thỏa thuận trước..." : "Private Gründe / Absprache..."}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40 font-medium"
@@ -964,7 +1014,7 @@ function ShiftSwapCenterModal({
                 disabled={busy}
                 className="px-4 py-2 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
               >
-                {busy ? "Đang gửi..." : "Gửi yêu cầu"}
+                {busy ? (lang === "vi" ? "Đang gửi..." : "Wird gesendet...") : (lang === "vi" ? "Gửi yêu cầu" : "Anfrage senden")}
               </button>
             </div>
           </form>
