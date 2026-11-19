@@ -14,7 +14,7 @@ import { Press, Scene } from "./experience";
 import { useI18n, LanguageSwitcher } from "../lib/i18n";
 
 export function Login({ onLogin }: { onLogin: (u: User) => void }) {
-  const { lang, t } = useI18n();
+  const { lang } = useI18n();
   const reset = new URLSearchParams(location.search).get("reset");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,7 +26,7 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
     e.preventDefault();
     setError("");
     if (reset && password !== confirm) {
-      setError("Die Passwörter stimmen nicht überein.");
+      setError(lang === "vi" ? "Mật khẩu xác nhận không khớp." : "Die Passwörter stimmen nicht überein.");
       return;
     }
     setBusy(true);
@@ -57,7 +57,7 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
           <LanguageSwitcher />
         </div>
         <div className="auth-form">
-          <div className="eyebrow">{t("auth.tagline", "EIN GUTER ORT FÜR IHR TEAM")}</div>
+          <div className="eyebrow">{lang === "vi" ? "HỆ THỐNG QUẢN TRỊ NHÂN SỰ & TIỀN LƯƠNG NHÀ HÀNG" : "EIN GUTER ORT FÜR IHR TEAM"}</div>
           <h1>
             {done ? (
               lang === "vi" ? "Khởi đầu mới." : "Ein neuer Anfang."
@@ -250,7 +250,7 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
           <span>
             <i /> {lang === "vi" ? "Con người là trung tâm" : "Menschen im Mittelpunkt"}
           </span>
-          <span>ATELIER GASTRONOMIE</span>
+          <span>{lang === "vi" ? "HỆ THỐNG NHÀ HÀNG ATELIER" : "ATELIER GASTRONOMIE"}</span>
         </div>
       </div>
     </div>

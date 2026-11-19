@@ -239,11 +239,11 @@ function Application() {
     return error ? (
       <div className="connection-state">
         <AlertCircle />
-        <h2>Verbindung unterbrochen</h2>
+        <h2>{lang === "vi" ? "Mất kết nối máy chủ" : "Verbindung unterbrochen"}</h2>
         <p>{error}</p>
-        <Press onClick={load}>Erneut versuchen</Press>
+        <Press onClick={load}>{lang === "vi" ? "Thử lại" : "Erneut versuchen"}</Press>
         <button className="text-button" onClick={logout}>
-          Abmelden
+          {lang === "vi" ? "Đăng xuất" : "Abmelden"}
         </button>
       </div>
     ) : (
@@ -370,7 +370,8 @@ function Application() {
             <LanguageSwitcher />
             <button
               className="icon-button"
-              aria-label={dark ? "Helles Design" : "Dunkles Design"}
+              aria-label={dark ? (lang === "vi" ? "Giao diện sáng" : "Helles Design") : (lang === "vi" ? "Giao diện tối" : "Dunkles Design")}
+              title={dark ? (lang === "vi" ? "Giao diện sáng" : "Helles Design") : (lang === "vi" ? "Giao diện tối" : "Dunkles Design")}
               onClick={() => setDark((v) => !v)}
             >
               {dark ? <Sun size={18} /> : <Moon size={18} />}
@@ -630,14 +631,14 @@ function Application() {
           onSaved={async () => {
             setEditor(null);
             await load();
-            setToast("Änderungen erfolgreich gespeichert.");
+            setToast(lang === "vi" ? "Đã lưu thay đổi thành công." : "Änderungen erfolgreich gespeichert.");
           }}
         />
       )}
       <Modal
         open={!!selected}
         onClose={() => setBranchId(null)}
-        title={selected?.name || "Niederlassung"}
+        title={selected?.name || (lang === "vi" ? "Chi nhánh" : "Niederlassung")}
         description={selected ? `${selected.code} · ${selected.city}` : ""}
         drawer
         wide

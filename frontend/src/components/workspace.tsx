@@ -149,8 +149,8 @@ export function Overview({
             </span>
             <span>
               {data.employees.length
-                ? `${data.employees.length} Menschen. Ein gemeinsames Ziel.`
-                : "Gut organisiert. Sicher verbunden."}
+                ? (lang === "vi" ? `${data.employees.length} thành viên. Cùng một mục tiêu chung.` : `${data.employees.length} Menschen. Ein gemeinsames Ziel.`)
+                : (lang === "vi" ? "Tổ chức chặt chẽ. Kết nối an toàn." : "Gut organisiert. Sicher verbunden.")}
             </span>
           </div>
         </div>
@@ -256,16 +256,16 @@ export function Overview({
             </div>
             {!data.branches.length && (
               <Empty
-                title="Hier beginnt Ihre Organisation"
-                text="Ihre ersten Niederlassungen erscheinen hier."
+                title={lang === "vi" ? "Bắt đầu thiết lập tổ chức" : "Hier beginnt Ihre Organisation"}
+                text={lang === "vi" ? "Các chi nhánh đầu tiên của bạn sẽ xuất hiện tại đây." : "Ihre ersten Niederlassungen erscheinen hier."}
               />
             )}
           </section>
           <section className="panel network-panel reveal">
             <div className="panel-heading">
               <div>
-                <h2>Überall ein Zuhause.</h2>
-                <p>Ihr Standortnetz in Deutschland</p>
+                <h2>{lang === "vi" ? "Mạng lưới cơ sở" : "Überall ein Zuhause."}</h2>
+                <p>{lang === "vi" ? "Mạng lưới chi nhánh của bạn tại Đức" : "Ihr Standortnetz in Deutschland"}</p>
               </div>
               <span className="map-icon">
                 <Globe2 size={17} />
@@ -274,11 +274,11 @@ export function Overview({
             <NetworkMap branches={data.branches} onBranch={onBranch} />
             <div className="network-footer">
               <span>
-                <i /> {active.length} aktive Niederlassungen
+                <i /> {active.length} {lang === "vi" ? "chi nhánh đang hoạt động" : "aktive Niederlassungen"}
               </span>
               <span>
                 {new Set(data.branches.map((b) => b.stateCode)).size}{" "}
-                Bundesländer
+                {lang === "vi" ? "Bang (Đức)" : "Bundesländer"}
               </span>
             </div>
           </section>
@@ -287,14 +287,15 @@ export function Overview({
         <div className="panel reveal employee-welcome">
           <ShieldCheck size={32} />
           <div>
-            <h2>Willkommen in Ihrem persönlichen Arbeitsbereich.</h2>
+            <h2>{lang === "vi" ? "Chào mừng bạn đến với không gian làm việc cá nhân." : "Willkommen in Ihrem persönlichen Arbeitsbereich."}</h2>
             <p>
-              Hier verwalten Sie Ihre Anmeldung und Sitzungen. Personaldaten und
-              Standorte sind nur für berechtigte Rollen sichtbar.
+              {lang === "vi"
+                ? "Tại đây bạn quản lý phiên đăng nhập và bảo mật tài khoản. Dữ liệu nhân sự và chi nhánh chỉ hiển thị cho các vai trò được phân quyền."
+                : "Hier verwalten Sie Ihre Anmeldung und Sitzungen. Personaldaten und Standorte sind nur für berechtigte Rollen sichtbar."}
             </p>
           </div>
           <Press onClick={() => navigate("security")}>
-            Meine Sicherheit <ArrowRight size={16} />
+            {lang === "vi" ? "Bảo mật tài khoản" : "Meine Sicherheit"} <ArrowRight size={16} />
           </Press>
         </div>
       )}
@@ -302,13 +303,13 @@ export function Overview({
         <section className="panel reveal">
           <div className="panel-heading">
             <div>
-              <h2>Was sich bewegt</h2>
-              <p>Die letzten Änderungen in Ihrem Arbeitsbereich</p>
+              <h2>{lang === "vi" ? "Hoạt động gần đây" : "Was sich bewegt"}</h2>
+              <p>{lang === "vi" ? "Những cập nhật mới nhất trong không gian làm việc của bạn" : "Die letzten Änderungen in Ihrem Arbeitsbereich"}</p>
             </div>
             {data.permissions.includes("audit.read") && (
               <button
                 className="icon-button"
-                aria-label="Alle Aktivitäten"
+                aria-label={lang === "vi" ? "Tất cả hoạt động" : "Alle Aktivitäten"}
                 onClick={() => navigate("activity")}
               >
                 <ArrowUpRight size={17} />
@@ -321,15 +322,26 @@ export function Overview({
           <div className="access-orb">
             <ShieldCheck size={29} />
           </div>
-          <div className="eyebrow">SICHER ZUSAMMENARBEITEN</div>
+          <div className="eyebrow">{lang === "vi" ? "HỢP TÁC AN TOÀN" : "SICHER ZUSAMMENARBEITEN"}</div>
           <h2>
-            Vertrauen braucht
-            <br />
-            klare Zugriffe.
+            {lang === "vi" ? (
+              <>
+                Tin cậy bắt nguồn từ
+                <br />
+                quyền hạn rõ ràng.
+              </>
+            ) : (
+              <>
+                Vertrauen braucht
+                <br />
+                klare Zugriffe.
+              </>
+            )}
           </h2>
           <p>
-            Ihre Rolle bestimmt, was Sie sehen und verwalten. Sensible Zugriffe
-            bleiben geschützt.
+            {lang === "vi"
+              ? "Vai trò của bạn xác định dữ liệu bạn được xem và quản lý. Các quyền hạn nhạy cảm luôn được bảo vệ nghiêm ngặt."
+              : "Ihre Rolle bestimmt, was Sie sehen und verwalten. Sensible Zugriffe bleiben geschützt."}
           </p>
           <button
             onClick={() =>
@@ -338,7 +350,7 @@ export function Overview({
               )
             }
           >
-            Zugriffe im Blick <ArrowUpRight size={16} />
+            {lang === "vi" ? "Kiểm tra quyền truy cập" : "Zugriffe im Blick"} <ArrowUpRight size={16} />
           </button>
         </section>
       </div>
@@ -352,6 +364,7 @@ function NetworkMap({
   branches: Branch[];
   onBranch: (id: string) => void;
 }) {
+  const { lang } = useI18n();
   const coords: Record<string, [number, number]> = {
     Stuttgart: [31, 73],
     Heidelberg: [28, 61],
@@ -401,8 +414,8 @@ function NetworkMap({
           </button>
         );
       })}
-      <span className="map-country">DEUTSCHLAND</span>
-      <span className="map-note">Schematische Standortübersicht</span>
+      <span className="map-country">{lang === "vi" ? "NƯỚC ĐỨC" : "DEUTSCHLAND"}</span>
+      <span className="map-note">{lang === "vi" ? "Sơ đồ mạng lưới chi nhánh" : "Schematische Standortübersicht"}</span>
     </div>
   );
 }
@@ -830,8 +843,8 @@ export function BranchList({
       )}
       {!branches.length && (
         <Empty
-          title="Kein Standort gefunden"
-          text="Versuchen Sie einen anderen Suchbegriff oder passen Sie die Filter an."
+          title={lang === "vi" ? "Không tìm thấy chi nhánh nào" : "Kein Standort gefunden"}
+          text={lang === "vi" ? "Vui lòng thử từ khóa tìm kiếm khác hoặc điều chỉnh lại bộ lọc." : "Versuchen Sie einen anderen Suchbegriff oder passen Sie die Filter an."}
         />
       )}
     </>
@@ -1731,8 +1744,8 @@ export function Accounts({
         </table>
         {!users.length && (
           <Empty
-            title="Kein Konto gefunden"
-            text="Bitte passen Sie Ihre Suche an."
+            title={lang === "vi" ? "Không tìm thấy tài khoản nào" : "Kein Konto gefunden"}
+            text={lang === "vi" ? "Vui lòng điều chỉnh lại từ khóa tìm kiếm." : "Bitte passen Sie Ihre Suche an."}
           />
         )}
       </div>

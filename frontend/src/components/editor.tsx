@@ -231,9 +231,9 @@ export function EditorModal({
       title={title[editor.kind]}
       description={
         editor.kind === "assignment"
-          ? "Einsatzort und Gültigkeit festlegen. Überlappende Zuordnungen werden abgelehnt."
+          ? (lang === "vi" ? "Thiết lập địa điểm làm việc và thời hạn hiệu lực. Hệ thống sẽ từ chối nếu có xung đột trùng lặp." : "Einsatzort und Gültigkeit festlegen. Überlappende Zuordnungen werden abgelehnt.")
           : editor.kind === "end"
-            ? "Die Historie bleibt erhalten. Das Enddatum ist einschließlich gültig."
+            ? (lang === "vi" ? "Lịch sử phân công sẽ được bảo lưu. Ngày kết thúc có hiệu lực bao gồm cả ngày này." : "Die Historie bleibt erhalten. Das Enddatum ist einschließlich gültig.")
             : undefined
       }
     >
@@ -251,14 +251,14 @@ export function EditorModal({
                 {input("Stadt", "city", editor.row?.city)}
               </div>
               <label className="field">
-                <span>Rechtseinheit</span>
+                <span>{lang === "vi" ? "Pháp nhân sở hữu" : "Rechtseinheit"}</span>
                 <select
                   name="legalEntityId"
                   defaultValue={editor.row?.legalEntityId || ""}
                   required
                   disabled={!!editor.row}
                 >
-                  {!editor.row && <option value="">Bitte wählen</option>}
+                  {!editor.row && <option value="">{lang === "vi" ? "-- Vui lòng chọn --" : "Bitte wählen"}</option>}
                   {data.entities
                     .filter(
                       (e) => e.active || e.id === editor.row?.legalEntityId,
@@ -281,7 +281,7 @@ export function EditorModal({
               {state(editor.row?.stateCode)}
               <div className="note">
                 <Clock3 size={16} />
-                Zeitzone Europe/Berlin · Feiertage nach tatsächlichem Arbeitsort
+                {lang === "vi" ? "Múi giờ Europe/Berlin · Lịch nghỉ lễ tính theo địa điểm làm việc thực tế" : "Zeitzone Europe/Berlin · Feiertage nach tatsächlichem Arbeitsort"}
               </div>
             </>
           )}
@@ -378,17 +378,18 @@ export function EditorModal({
                 ))}
               </fieldset>
               <p className="muted small">
-                Restaurantleitungen erhalten zusätzlich den gültigen
-                Leitungsbereich. Änderungen machen bisherige Sitzungen ungültig.
+                {lang === "vi"
+                  ? "Quản lý nhà hàng sẽ được cấp quyền theo phạm vi chi nhánh được giao. Mọi thay đổi sẽ làm mới các phiên đăng nhập."
+                  : "Restaurantleitungen erhalten zusätzlich den gültigen Leitungsbereich. Änderungen machen bisherige Sitzungen ungültig."}
               </p>
             </>
           )}
           {editor.kind === "manager" && (
             <>
               <label className="field">
-                <span>Restaurantleitung</span>
+                <span>{lang === "vi" ? "Quản lý phụ trách" : "Restaurantleitung"}</span>
                 <select name="managerId" required defaultValue="">
-                  <option value="">Bitte wählen</option>
+                  <option value="">{lang === "vi" ? "-- Vui lòng chọn --" : "Bitte wählen"}</option>
                   {data.managerOptions.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.name}
@@ -399,20 +400,20 @@ export function EditorModal({
               {dates}
               <div className="note">
                 <ShieldCheck size={16} />
-                Der Bereich wird nur während des gültigen Zeitraums freigegeben.
+                {lang === "vi" ? "Quyền quản lý chỉ có hiệu lực trong khoảng thời gian được chỉ định." : "Der Bereich wird nur während des gültigen Zeitraums freigegeben."}
               </div>
             </>
           )}
           {editor.kind === "assignment" && (
             <>
               <label className="field">
-                <span>Teammitglied</span>
+                <span>{lang === "vi" ? "Nhân viên" : "Teammitglied"}</span>
                 <select
                   name="employeeId"
                   required
                   defaultValue={editor.employeeId || ""}
                 >
-                  <option value="">Bitte wählen</option>
+                  <option value="">{lang === "vi" ? "-- Vui lòng chọn --" : "Bitte wählen"}</option>
                   {data.employees.map((e) => (
                     <option key={e.id} value={e.id}>
                       {e.name}
@@ -421,7 +422,7 @@ export function EditorModal({
                 </select>
               </label>
               <label className="field">
-                <span>Niederlassung</span>
+                <span>{lang === "vi" ? "Chi nhánh" : "Niederlassung"}</span>
                 <select
                   name="branchId"
                   required
@@ -438,14 +439,14 @@ export function EditorModal({
                 </select>
               </label>
               <label className="field">
-                <span>Tatsächlicher Arbeitsort</span>
+                <span>{lang === "vi" ? "Địa điểm làm việc cụ thể" : "Tatsächlicher Arbeitsort"}</span>
                 <select
                   key={branchId}
                   name="workLocationId"
                   required
                   defaultValue=""
                 >
-                  <option value="">Bitte wählen</option>
+                  <option value="">{lang === "vi" ? "-- Vui lòng chọn --" : "Bitte wählen"}</option>
                   {data.locations
                     .filter((l) => l.branchId === branchId && l.active)
                     .map((l) => (
@@ -457,25 +458,25 @@ export function EditorModal({
               </label>
               {dates}
               <label className="field">
-                <span>Art der Zuordnung</span>
+                <span>{lang === "vi" ? "Hình thức phân công" : "Art der Zuordnung"}</span>
                 <select name="kind">
-                  <option value="TEMPORARY">Vorübergehender Einsatz</option>
-                  <option value="HOME">Reguläre Zuordnung</option>
+                  <option value="TEMPORARY">{lang === "vi" ? "Điều chuyển tạm thời (TEMPORARY)" : "Vorübergehender Einsatz"}</option>
+                  <option value="HOME">{lang === "vi" ? "Chi nhánh chính (HOME)" : "Reguläre Zuordnung"}</option>
                 </select>
               </label>
               <label className="field">
-                <span>Begründung</span>
+                <span>{lang === "vi" ? "Lý do / Căn cứ" : "Begründung"}</span>
                 <textarea
                   name="reason"
                   required
                   maxLength={500}
-                  placeholder="Warum erfolgt die Zuordnung?"
+                  placeholder={lang === "vi" ? "Lý do điều chuyển hoặc phân công?" : "Warum erfolgt die Zuordnung?"}
                 />
               </label>
               <p className="muted small">
-                Beenden Sie eine bestehende Zuordnung zuerst. Das Enddatum ist
-                einschließlich gültig; der neue Zeitraum beginnt frühestens am
-                Folgetag.
+                {lang === "vi"
+                  ? "Hãy kết thúc đợt phân công hiện tại trước khi tạo mới. Ngày kết thúc có hiệu lực bao gồm cả ngày này; đợt mới bắt đầu sớm nhất vào ngày tiếp theo."
+                  : "Beenden Sie eine bestehende Zuordnung zuerst. Das Enddatum ist einschließlich gültig; der neue Zeitraum beginnt frühestens am Folgetag."}
               </p>
             </>
           )}
