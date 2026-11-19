@@ -2769,6 +2769,18 @@ select {
   border-color: #82947730;
   color: #b1c4a7;
 }
+.dark .auth-form .eyebrow {
+  color: #86efac;
+}
+.dark .auth-form h1 {
+  color: #f8fafc;
+}
+.dark .auth-form h1 > span {
+  color: #86efac;
+}
+.dark .auth-form-note {
+  color: #94a3b8;
+}
 .dark .auth-right {
   filter: brightness(0.8);
 }
