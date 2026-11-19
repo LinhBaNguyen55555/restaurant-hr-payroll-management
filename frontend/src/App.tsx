@@ -32,6 +32,7 @@ import {
   ArrowLeftRight,
   CheckCheck,
   AlertCircle,
+  Calendar,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -53,11 +54,15 @@ import {
   BranchDetails,
   Security,
 } from "./components/workspace";
+import { WorkforceView } from "./components/workforce";
+import { SchedulingView } from "./components/scheduling";
 import { EditorModal, type Editor } from "./components/editor";
 import { I18nProvider, useI18n, LanguageSwitcher } from "./lib/i18n";
 import "./App.css";
 export type Page =
   | "overview"
+  | "workforce"
+  | "scheduling"
   | "branches"
   | "entities"
   | "people"
@@ -72,6 +77,20 @@ const navDefinition: {
   permission?: string;
 }[] = [
   { page: "overview", deLabel: "Übersicht", key: "nav.overview", icon: LayoutDashboard },
+  {
+    page: "workforce",
+    deLabel: "Personal & Verträge",
+    key: "nav.workforce",
+    icon: Users,
+    permission: "workforce.read",
+  },
+  {
+    page: "scheduling",
+    deLabel: "Schichtplanung",
+    key: "nav.scheduling",
+    icon: Calendar,
+    permission: "schedule.read",
+  },
   {
     page: "branches",
     deLabel: "Niederlassungen",
@@ -415,6 +434,10 @@ function Application() {
               <p>
                 {t(`sub.${page}`, {
                   overview: "Alles, was Ihr Team verbindet. An einem Ort.",
+                  workforce:
+                    "Mitarbeiterakten, Vertragsverlauf, Entgeltstufen und Schutzbedingungen verwalten.",
+                  scheduling:
+                    "Schichtvorlagen erstellen, Einsätze planen, ArbZG-Regeln prüfen und Dienstpläne veröffentlichen.",
                   branches:
                     "Ihre Restaurants. Ihre Orte. Ein gemeinsames Zuhause.",
                   entities: "Eine klare Struktur für Ihre Organisation.",
@@ -556,6 +579,12 @@ function Application() {
                     />
                   )}
                 </div>
+              )}
+              {page === "workforce" && (
+                <WorkforceView branches={data.branches} />
+              )}
+              {page === "scheduling" && (
+                <SchedulingView branches={data.branches} />
               )}
               {page === "people" && (
                 <People

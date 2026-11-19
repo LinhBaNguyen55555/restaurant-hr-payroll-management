@@ -2725,6 +2725,37 @@ select {
 .dark .modal-content {
   background: var(--surface);
   border-color: var(--line);
+  color: var(--ink);
+}
+.dark .modal-content .text-slate-400 {
+  color: #94a3b8 !important;
+}
+.dark .modal-content .text-slate-700,
+.dark .modal-content .text-slate-800,
+.dark .modal-content .text-slate-900 {
+  color: #f8fafc !important;
+}
+.dark .modal-content .bg-white,
+.dark .modal-content .bg-slate-50 {
+  background: var(--surface-soft) !important;
+}
+.dark .modal-content .border-slate-200 {
+  border-color: var(--line) !important;
+}
+.dark .workforce-page .bg-white,
+.dark .scheduling-page .bg-white {
+  background: var(--surface) !important;
+}
+.dark .workforce-page .border-slate-200,
+.dark .scheduling-page .border-slate-200 {
+  border-color: var(--line) !important;
+}
+.dark .workforce-page table th {
+  background: var(--surface-soft) !important;
+  color: #94a3b8 !important;
+}
+.dark .workforce-page table td {
+  border-color: var(--line) !important;
 }
 .dark .modal-heading h2 {
   color: #f8fafc;

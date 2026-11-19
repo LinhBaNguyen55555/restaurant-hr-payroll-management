@@ -279,3 +279,171 @@ export const initials = (name: string) =>
     .map((n) => n[0])
     .slice(0, 2)
     .join("");
+
+// --- F02 & F03 TYPES ---
+
+export type EmployeeDto = {
+  employeeId: number;
+  employeeCode: string;
+  legalEntityId: number;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  dateOfBirth: string | null;
+  email: string;
+  hireDate: string;
+  terminationDate: string | null;
+  employmentStatus: string;
+  positionId: number | null;
+  positionCode: string | null;
+  positionNameDe: string | null;
+  positionNameEn: string | null;
+  branchId: number | null;
+  branchName: string | null;
+  contractType: string | null;
+  payType: string | null;
+  weeklyHours: number | null;
+  currentHourlyWage: number | null;
+  currentMonthlyWage: number | null;
+  activeRestrictions: string[];
+};
+
+export type EmploymentContract = {
+  contractId: number;
+  employeeId: number;
+  contractNumber: string;
+  contractType: string;
+  payType: string;
+  startDate: string;
+  endDate: string | null;
+  standardWeeklyMinutes: number;
+  collectiveAgreementReference?: string;
+  status: string;
+};
+
+export type WageRate = {
+  wageRateId: number;
+  contractId: number;
+  validFrom: string;
+  validTo: string | null;
+  grossHourlyEur: number | null;
+  grossMonthlyEur: number | null;
+  sfnApprovedHourlyBaseEur?: number | null;
+  currencyCode: string;
+  approvalStatus: string;
+};
+
+export type WorkRestriction = {
+  restrictionId: number;
+  employeeId: number;
+  restrictionType: string;
+  validFrom: string;
+  validTo: string | null;
+  maxDailyMinutes: number | null;
+  maxWeeklyMinutes: number | null;
+  allowNightShift: boolean;
+  allowSunday: boolean;
+  schedulingRuleSummary: string;
+  confidentialNotes?: string;
+};
+
+export type EmployeeDetailDto = {
+  profile: EmployeeDto | null;
+  contracts: EmploymentContract[];
+  wageRates: WageRate[];
+  restrictions: WorkRestriction[];
+};
+
+export type PositionItem = {
+  positionId: number;
+  positionCode: string;
+  positionNameDe: string;
+  positionNameEn: string;
+  active: boolean;
+};
+
+export type ShiftTemplate = {
+  templateId: number;
+  branchId: number;
+  templateCode: string;
+  templateName: string;
+  localStartTime: string;
+  localEndTime: string;
+  endsNextDay: boolean;
+  defaultBreakMinutes: number;
+};
+
+export type Shift = {
+  shiftId: number;
+  employeeId: number;
+  employeeCode: string;
+  employeeName: string;
+  branchId: number;
+  templateId: number | null;
+  templateName: string | null;
+  plannedStartUtc: string;
+  plannedEndUtc: string;
+  plannedBreakMinutes: number;
+  status: "DRAFT" | "PUBLISHED" | "CANCELLED";
+  publishedAtUtc: string | null;
+  versionNumber: number;
+  durationMinutes: number;
+  isSunday: boolean;
+  positionName: string | null;
+};
+
+export type LaborLawViolation = {
+  code: string;
+  severity: "BLOCKER" | "WARNING";
+  messageVi: string;
+  messageDe: string;
+  legalBasis: string;
+  employeeId: number;
+  shiftId: number;
+};
+
+export type LaborLawCheckSummary = {
+  validForPublish: boolean;
+  blockerCount: number;
+  warningCount: number;
+  violations: LaborLawViolation[];
+};
+
+export type PublishResult = {
+  publishedShiftCount: number;
+  versionNumber: number;
+  success: boolean;
+  messageVi: string;
+  messageDe: string;
+  warnings: LaborLawViolation[];
+};
+
+export type ShiftSwapRequest = {
+  swapRequestId: number;
+  sourceShiftId: number;
+  targetEmployeeId: number;
+  requestedByEmployeeId: number;
+  reason: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+  reviewedByUserId: number | null;
+  createdAtUtc: string;
+};
+
+export type ImportError = {
+  lineNumber: number;
+  fieldName: string;
+  errorMessageVi: string;
+  errorMessageDe: string;
+  rawValue: string;
+};
+
+export type ImportResult = {
+  jobId: number | null;
+  dryRun: boolean;
+  totalRows: number;
+  successRows: number;
+  errorRows: number;
+  status: string;
+  errors: ImportError[];
+};
+

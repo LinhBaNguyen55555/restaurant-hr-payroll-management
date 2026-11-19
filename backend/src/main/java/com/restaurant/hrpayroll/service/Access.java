@@ -30,6 +30,9 @@ public class Access {
             "org.read",
             "org.write",
             "workforce.read",
+            "workforce.write",
+            "schedule.read",
+            "schedule.write",
             "assignment.write",
             "iam.read",
             "iam.write",
@@ -41,17 +44,19 @@ public class Access {
             "org.read",
             "org.write",
             "workforce.read",
+            "workforce.write",
+            "schedule.read",
+            "schedule.write",
             "assignment.write",
             "audit.read"
           )
         );
         case RESTAURANT_MANAGER -> out.addAll(
-          Set.of("org.read", "workforce.read")
+          Set.of("org.read", "workforce.read", "schedule.read", "schedule.write")
         );
         case AUDITOR, DPO -> out.addAll(Set.of("org.read", "audit.read"));
         case PAYROLL_OFFICER, FINANCE_APPROVER -> out.add("org.read");
-        case EMPLOYEE -> {
-        }
+        case EMPLOYEE -> out.add("schedule.read");
       }
     return out;
   }
