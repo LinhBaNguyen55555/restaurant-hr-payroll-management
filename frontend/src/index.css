@@ -2,8 +2,8 @@
 @import "@fontsource-variable/inter";
 :root {
   font-family: "Inter Variable", Inter, system-ui, sans-serif;
-  color: #273d35;
-  background: #f7f9f7;
+  color: var(--ink);
+  background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -28,18 +28,18 @@
 }
 :root.dark {
   color-scheme: dark;
-  --bg: #14241f;
-  --surface: #1d3028;
-  --surface-soft: #24392f;
-  --ink: #e2eae3;
-  --muted: #9eafa3;
-  --line: #34483b;
-  --green: #8fc5a4;
-  --green-dark: #94c7a7;
-  --mint: #293f31;
-  --hero: #2c4333;
-  --sidebar: #192a22;
-  --field: #233a2d;
+  --bg: #0f1c16;
+  --surface: #172820;
+  --surface-soft: #1f342b;
+  --ink: #f0f7f2;
+  --muted: #a6baa9;
+  --line: #2b4335;
+  --green: #86efac;
+  --green-dark: #4ade80;
+  --mint: #1c3026;
+  --hero: #192e24;
+  --sidebar: #13221b;
+  --field: #1b2f24;
   --peach: #4c3e33;
   --violet: #39354c;
   --blue: #30424c;
@@ -50,6 +50,8 @@
 body {
   margin: 0;
   min-width: 360px;
+  color: var(--ink);
+  background: var(--bg);
 }
 button,
 input,
