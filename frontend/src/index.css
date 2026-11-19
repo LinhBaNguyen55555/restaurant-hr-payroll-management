@@ -45,77 +45,75 @@
   --violet: #39354c;
   --blue: #30424c;
 }
-* {
-  box-sizing: border-box;
-}
-body {
-  margin: 0;
-  min-width: 360px;
-  color: var(--ink);
-  background: var(--bg);
-}
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
-button,
-a,
-input,
-select,
-textarea {
-  -webkit-tap-highlight-color: transparent;
-}
-button {
-  cursor: pointer;
-}
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-button {
-  color: inherit;
-}
-a {
-  color: inherit;
-  text-decoration: none;
-}
-button:focus-visible,
-a:focus-visible {
-  outline: 3px solid #73ac87;
-  outline-offset: 4px;
-}
-input:focus,
-select:focus,
-textarea:focus {
-  outline: none;
-  border-color: #78a98a;
-  box-shadow: 0 0 0 3px #78a98a1e;
-}
-button {
-  background: none;
-  border: 0;
-}
-svg {
-  flex-shrink: 0;
-}
-h1,
-h2,
-h3,
-p {
-  margin: 0;
-}
-b,
-strong {
-  font-weight: 600;
-}
-::selection {
-  background: #bedec5;
-  color: #233e2d;
-}
-input,
-select,
-textarea {
-  color: var(--ink);
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    min-width: 360px;
+    color: var(--ink);
+    background: var(--bg);
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button {
+    cursor: pointer;
+    color: inherit;
+    background: none;
+    border: 0;
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+  button:focus-visible,
+  a:focus-visible {
+    outline: 3px solid #73ac87;
+    outline-offset: 4px;
+  }
+  input:focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: #78a98a;
+    box-shadow: 0 0 0 3px #78a98a1e;
+  }
+  svg {
+    flex-shrink: 0;
+  }
+  h1,
+  h2,
+  h3,
+  p {
+    margin: 0;
+  }
+  b,
+  strong {
+    font-weight: 600;
+  }
+  ::selection {
+    background: #bedec5;
+    color: #233e2d;
+  }
+  input,
+  select,
+  textarea {
+    color: var(--ink);
+  }
 }
