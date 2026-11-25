@@ -567,3 +567,218 @@ export type AttendanceChangeRequest = {
   createdAtUtc: string;
 };
 
+// --- F06 & F07 TYPES ---
+
+export type LeaveType = {
+  leaveTypeId: number;
+  leaveTypeCode: string;
+  nameDe: string;
+  nameVi: string;
+  isPaid: boolean;
+  requiresMedicalCertificate: boolean;
+  legalBasis: string;
+  colorHex: string;
+};
+
+export type LeaveBalance = {
+  balanceId: number;
+  employeeId: number;
+  year: number;
+  leaveTypeCode: string;
+  leaveTypeNameVi: string;
+  entitledDays: number;
+  carriedOverDays: number;
+  takenDays: number;
+  pendingDays: number;
+  remainingDays: number;
+  expiryDate: string | null;
+};
+
+export type LeaveRequest = {
+  requestId: number;
+  employeeId: number;
+  employeeName: string;
+  employeeCode: string;
+  leaveTypeCode: string;
+  leaveTypeNameVi: string;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  reason: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+  decisionNotes: string | null;
+  decidedByUserName: string | null;
+  decidedAtUtc: string | null;
+  createdAtUtc: string;
+};
+
+export type SicknessAbsence = {
+  absenceId: number;
+  employeeId: number;
+  employeeName: string;
+  employeeCode: string;
+  startDate: string;
+  endDate: string;
+  eauReferenceNumber: string | null;
+  isChildSickLeave: boolean;
+  hasMedicalCertificate: boolean;
+  continuedPayEligible: boolean;
+  status: "CONFIRMED" | "EXPIRED" | "CANCELLED";
+  createdAtUtc: string;
+};
+
+export type CompensatoryRest = {
+  restId: number;
+  employeeId: number;
+  employeeName: string;
+  workedDate: string;
+  sourceType: "SUNDAY" | "HOLIDAY";
+  deadlineDate: string;
+  isCompleted: boolean;
+  grantedDate: string | null;
+  daysRemaining: number;
+  isOverdue: boolean;
+};
+
+export type PublicHoliday = {
+  holidayId: number;
+  stateCode: string;
+  holidayDate: string;
+  holidayCode: string;
+  holidayNameDe: string;
+  holidayNameVi: string;
+  isStatutory: boolean;
+};
+
+export type SegmentCalculation = {
+  segmentId: number;
+  timesheetId: number;
+  segmentStartBerlin: string;
+  segmentEndBerlin: string;
+  payableMinutes: number;
+  segmentType: string;
+  isNight: boolean;
+  isDeepNight: boolean;
+  isSunday: boolean;
+  isHoliday: boolean;
+  isSpecialDay: boolean;
+  baseWageEur: number;
+  payableRatePercent: number;
+  paidAmountEur: number;
+  taxExemptPercent: number;
+  taxExemptAmountEur: number;
+  taxableAmountEur: number;
+  socialInsuranceExemptAmountEur: number;
+  calculationTrace: string;
+};
+
+export type TimesheetAllowanceBreakdown = {
+  timesheetId: number;
+  employeeId: number;
+  employeeName: string;
+  employeeCode: string;
+  workDate: string;
+  actualStartBerlin: string;
+  actualEndBerlin: string;
+  workedMinutes: number;
+  baseWageEur: number;
+  totalPaidAmountEur: number;
+  totalTaxExemptAmountEur: number;
+  totalTaxableAmountEur: number;
+  totalSvExemptAmountEur: number;
+  segments: SegmentCalculation[];
+};
+
+export type BranchAllowanceSummary = {
+  branchId: number;
+  fromDate: string;
+  toDate: string;
+  totalTimesheetsCount: number;
+  totalPaidAllowancesEur: number;
+  totalTaxExemptEur: number;
+  totalTaxableEur: number;
+  totalSvExemptEur: number;
+  timesheets: TimesheetAllowanceBreakdown[];
+};
+
+// API calls for Leave (F06)
+export const getLeaveTypes = () => api<LeaveType[]>("/leaves/types");
+
+export const getLeaveBalances = (employeeId?: number, year?: number) => {
+  const p = new URLSearchParams();
+  if (employeeId) p.set("employeeId", String(employeeId));
+  if (year) p.set("year", String(year));
+  return api<LeaveBalance[]>(`/leaves/balances?${p.toString()}`);
+};
+
+export const getLeaveRequests = (employeeId?: number, status?: string) => {
+  const p = new URLSearchParams();
+  if (employeeId) p.set("employeeId", String(employeeId));
+  if (status) p.set("status", status);
+  return api<LeaveRequest[]>(`/leaves/requests?${p.toString()}`);
+};
+
+export const createLeaveRequest = (body: {
+  employeeId?: number;
+  leaveTypeCode: string;
+  startDate: string;
+  endDate: string;
+  reason: string;
+}) => api<LeaveRequest>("/leaves/requests", "POST", body);
+
+export const approveLeaveRequest = (requestId: number, notes?: string) =>
+  api<LeaveRequest>(`/leaves/requests/${requestId}/approve`, "POST", { notes });
+
+export const rejectLeaveRequest = (requestId: number, notes?: string) =>
+  api<LeaveRequest>(`/leaves/requests/${requestId}/reject`, "POST", { notes });
+
+export const getSicknessAbsences = (employeeId?: number) => {
+  const p = new URLSearchParams();
+  if (employeeId) p.set("employeeId", String(employeeId));
+  return api<SicknessAbsence[]>(`/leaves/sickness?${p.toString()}`);
+};
+
+export const recordSicknessAbsence = (body: {
+  employeeId: number;
+  startDate: string;
+  endDate: string;
+  eauReferenceNumber?: string;
+  isChildSickLeave?: boolean;
+}) => api<SicknessAbsence>("/leaves/sickness", "POST", body);
+
+export const getCompensatoryRest = (employeeId?: number) => {
+  const p = new URLSearchParams();
+  if (employeeId) p.set("employeeId", String(employeeId));
+  return api<CompensatoryRest[]>(`/leaves/compensatory-rest?${p.toString()}`);
+};
+
+export const completeCompensatoryRest = (restId: number, grantedDate?: string) =>
+  api<CompensatoryRest>(`/leaves/compensatory-rest/${restId}/complete`, "POST", { grantedDate });
+
+// API calls for Allowance (F07)
+export const getPublicHolidays = (branchId?: number, year?: number) => {
+  const p = new URLSearchParams();
+  if (branchId) p.set("branchId", String(branchId));
+  if (year) p.set("year", String(year));
+  return api<PublicHoliday[]>(`/allowances/holidays?${p.toString()}`);
+};
+
+export const calculateTimesheetAllowance = (timesheetId: number) =>
+  api<TimesheetAllowanceBreakdown>(`/allowances/calculate/${timesheetId}`, "POST");
+
+export const getTimesheetAllowance = (timesheetId: number) =>
+  api<TimesheetAllowanceBreakdown>(`/allowances/timesheets/${timesheetId}`);
+
+export const getBranchAllowanceSummary = (
+  branchId?: number,
+  fromDate?: string,
+  toDate?: string
+) => {
+  const p = new URLSearchParams();
+  if (branchId) p.set("branchId", String(branchId));
+  if (fromDate) p.set("fromDate", fromDate);
+  if (toDate) p.set("toDate", toDate);
+  return api<BranchAllowanceSummary>(`/allowances/branch-summary?${p.toString()}`);
+};
+
+

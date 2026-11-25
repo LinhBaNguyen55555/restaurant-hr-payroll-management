@@ -807,4 +807,32 @@ class PlatformIntegrationTests {
       .andExpect(jsonPath("$.holidays[?(@.name == 'Heilige Drei Könige')]").doesNotExist())
       .andExpect(jsonPath("$.holidays[?(@.name == 'Allerheiligen')]").doesNotExist());
   }
+
+  @Test
+  void f06LeaveTypesAndBalancesEndpoints() throws Exception {
+    var s = admin();
+    mvc
+      .perform(get("/api/v1/leaves/types").session(s))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$").isArray());
+
+    mvc
+      .perform(get("/api/v1/leaves/balances").session(s))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$").isArray());
+  }
+
+  @Test
+  void f07AllowanceHolidaysAndSummaryEndpoints() throws Exception {
+    var s = admin();
+    mvc
+      .perform(get("/api/v1/allowances/holidays?year=2026").session(s))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$").isArray());
+
+    mvc
+      .perform(get("/api/v1/allowances/branch-summary?branchId=1").session(s))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.branchId").value(1));
+  }
 }

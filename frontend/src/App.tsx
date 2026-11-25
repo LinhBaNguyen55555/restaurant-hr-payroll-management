@@ -35,6 +35,8 @@ import {
   Calendar,
   Clock,
   FileCheck,
+  CalendarDays,
+  Coins,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -60,6 +62,8 @@ import { WorkforceView } from "./components/workforce";
 import { SchedulingView } from "./components/scheduling";
 import { AttendanceView } from "./components/attendance";
 import { ReconciliationView } from "./components/reconciliation";
+import { LeaveView } from "./components/leave";
+import { AllowancesView } from "./components/allowances";
 import { EditorModal, type Editor } from "./components/editor";
 import { I18nProvider, useI18n, LanguageSwitcher } from "./lib/i18n";
 import "./App.css";
@@ -69,6 +73,8 @@ export type Page =
   | "scheduling"
   | "attendance"
   | "reconciliation"
+  | "leave"
+  | "allowances"
   | "branches"
   | "entities"
   | "people"
@@ -109,6 +115,18 @@ const navDefinition: {
     key: "nav.reconciliation",
     icon: FileCheck,
     permission: "schedule.write",
+  },
+  {
+    page: "leave",
+    deLabel: "Urlaub & Abwesenheit",
+    key: "nav.leave",
+    icon: CalendarDays,
+  },
+  {
+    page: "allowances",
+    deLabel: "SFN-Zuschläge & Feiertage",
+    key: "nav.allowances",
+    icon: Coins,
   },
   {
     page: "branches",
@@ -461,6 +479,10 @@ function Application() {
                     "Direkte Arbeitszeiterfassung, Pausen und Stempelzeiten nach ArbZG.",
                   reconciliation:
                     "Vergleich von Dienstplan und Ist-Zeiten, Genehmigungsworkflow und Korrekturanträge.",
+                  leave:
+                    "Urlaubsanspruch nach BUrlG, eAU-Krankmeldungen nach EntgFG und Ausgleichstage nach § 11 ArbZG.",
+                  allowances:
+                    "Sonntags-, Feiertags- & Nachtzuschläge nach § 3b EStG und Beitragsfreiheit nach SvEV.",
                   branches:
                     "Ihre Restaurants. Ihre Orte. Ein gemeinsames Zuhause.",
                   entities: "Eine klare Struktur für Ihre Organisation.",
@@ -614,6 +636,12 @@ function Application() {
               )}
               {page === "reconciliation" && (
                 <ReconciliationView branches={data.branches} currentUserId={user?.id} />
+              )}
+              {page === "leave" && (
+                <LeaveView branches={data.branches} currentUserId={user?.id} />
+              )}
+              {page === "allowances" && (
+                <AllowancesView branches={data.branches} />
               )}
               {page === "people" && (
                 <People

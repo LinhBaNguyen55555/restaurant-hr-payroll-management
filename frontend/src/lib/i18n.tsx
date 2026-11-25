@@ -159,6 +159,14 @@ export const translations = {
   // F05: Reconciliation & Approval
   "nav.reconciliation": { de: "Soll-Ist-Abgleich", vi: "Đối soát & Duyệt giờ" },
   "sub.reconciliation": { de: "Vergleich von Dienstplan und Ist-Zeiten, Genehmigungsworkflow und Korrekturanträge.", vi: "Đối chiếu lịch ca vs giờ thực tế, quy trình phê duyệt SoD và xử lý đơn sửa giờ." },
+
+  // F06: Leave & Absence
+  "nav.leave": { de: "Urlaub & Abwesenheit", vi: "Nghỉ phép & Nghỉ bù" },
+  "sub.leave": { de: "Urlaubsanspruch nach BUrlG, eAU-Krankmeldungen nach EntgFG und Ausgleichstage nach § 11 ArbZG.", vi: "Số dư phép theo luật BUrlG, nghỉ ốm eAU theo EntgFG và quản lý hạn nghỉ bù § 11 ArbZG." },
+
+  // F07: Holiday & Allowances
+  "nav.allowances": { de: "SFN-Zuschläge & Feiertage", vi: "Phụ cấp SFN & Ngày lễ" },
+  "sub.allowances": { de: "Sonntags-, Feiertags- & Nachtzuschläge nach § 3b EStG und Beitragsfreiheit nach SvEV.", vi: "Tính phụ cấp ca đêm, Chủ nhật, ngày lễ và miễn thuế TNCN §3b EStG / miễn BHXH SvEV." },
   "sched.week": { de: "Woche", vi: "Tuần" },
   "sched.prev_week": { de: "Vorherige Woche", vi: "Tuần trước" },
   "sched.next_week": { de: "Nächste Woche", vi: "Tuần sau" },

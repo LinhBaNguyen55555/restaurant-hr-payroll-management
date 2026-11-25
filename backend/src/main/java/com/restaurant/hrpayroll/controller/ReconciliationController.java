@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
-@RequestMapping("/api/reconciliation")
+@RequestMapping({"/api/v1/reconciliation", "/api/reconciliation"})
 @Transactional
 public class ReconciliationController {
 
