@@ -26,6 +26,7 @@ import tools.jackson.databind.ObjectMapper;
 @SpringBootTest(
   properties = {
     "spring.datasource.url=jdbc:h2:mem:platformtests;DB_CLOSE_DELAY=-1",
+    "spring.jpa.hibernate.ddl-auto=create-drop",
     "app.seed-demo=true",
     "app.mfa-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
   }

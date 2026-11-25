@@ -33,6 +33,8 @@ import {
   CheckCheck,
   AlertCircle,
   Calendar,
+  Clock,
+  FileCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -56,6 +58,8 @@ import {
 } from "./components/workspace";
 import { WorkforceView } from "./components/workforce";
 import { SchedulingView } from "./components/scheduling";
+import { AttendanceView } from "./components/attendance";
+import { ReconciliationView } from "./components/reconciliation";
 import { EditorModal, type Editor } from "./components/editor";
 import { I18nProvider, useI18n, LanguageSwitcher } from "./lib/i18n";
 import "./App.css";
@@ -63,6 +67,8 @@ export type Page =
   | "overview"
   | "workforce"
   | "scheduling"
+  | "attendance"
+  | "reconciliation"
   | "branches"
   | "entities"
   | "people"
@@ -90,6 +96,19 @@ const navDefinition: {
     key: "nav.scheduling",
     icon: Calendar,
     permission: "schedule.read",
+  },
+  {
+    page: "attendance",
+    deLabel: "Zeiterfassung",
+    key: "nav.attendance",
+    icon: Clock,
+  },
+  {
+    page: "reconciliation",
+    deLabel: "Soll-Ist-Abgleich",
+    key: "nav.reconciliation",
+    icon: FileCheck,
+    permission: "schedule.write",
   },
   {
     page: "branches",
@@ -438,6 +457,10 @@ function Application() {
                     "Mitarbeiterakten, Vertragsverlauf, Entgeltstufen und Schutzbedingungen verwalten.",
                   scheduling:
                     "Schichtvorlagen erstellen, Einsätze planen, ArbZG-Regeln prüfen und Dienstpläne veröffentlichen.",
+                  attendance:
+                    "Direkte Arbeitszeiterfassung, Pausen und Stempelzeiten nach ArbZG.",
+                  reconciliation:
+                    "Vergleich von Dienstplan und Ist-Zeiten, Genehmigungsworkflow und Korrekturanträge.",
                   branches:
                     "Ihre Restaurants. Ihre Orte. Ein gemeinsames Zuhause.",
                   entities: "Eine klare Struktur für Ihre Organisation.",
@@ -585,6 +608,12 @@ function Application() {
               )}
               {page === "scheduling" && (
                 <SchedulingView branches={data.branches} />
+              )}
+              {page === "attendance" && (
+                <AttendanceView branches={data.branches} />
+              )}
+              {page === "reconciliation" && (
+                <ReconciliationView branches={data.branches} currentUserId={user?.id} />
               )}
               {page === "people" && (
                 <People

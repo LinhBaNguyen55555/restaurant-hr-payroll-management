@@ -151,6 +151,14 @@ export const translations = {
   // F03: Scheduling & Shift Planning
   "nav.scheduling": { de: "Schichtplanung", vi: "Lịch ca làm việc" },
   "sub.scheduling": { de: "Schichtvorlagen erstellen, Einsätze planen, deutsches Arbeitszeitgesetz (ArbZG) prüfen und Dienstpläne veröffentlichen.", vi: "Tạo mẫu ca, xếp lịch tuần, kiểm tra luật lao động Đức (ArbZG) và công bố lịch làm việc." },
+
+  // F04: Attendance Management
+  "nav.attendance": { de: "Zeiterfassung", vi: "Chấm công & Giờ nghỉ" },
+  "sub.attendance": { de: "Direkte Arbeitszeiterfassung, Pausen und Stempelzeiten nach ArbZG.", vi: "Ghi nhận giờ vào, giờ ra và thời gian nghỉ giải lao theo luật ArbZG." },
+
+  // F05: Reconciliation & Approval
+  "nav.reconciliation": { de: "Soll-Ist-Abgleich", vi: "Đối soát & Duyệt giờ" },
+  "sub.reconciliation": { de: "Vergleich von Dienstplan und Ist-Zeiten, Genehmigungsworkflow und Korrekturanträge.", vi: "Đối chiếu lịch ca vs giờ thực tế, quy trình phê duyệt SoD và xử lý đơn sửa giờ." },
   "sched.week": { de: "Woche", vi: "Tuần" },
   "sched.prev_week": { de: "Vorherige Woche", vi: "Tuần trước" },
   "sched.next_week": { de: "Nächste Woche", vi: "Tuần sau" },

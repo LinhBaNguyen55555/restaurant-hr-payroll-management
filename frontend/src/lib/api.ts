@@ -447,3 +447,123 @@ export type ImportResult = {
   errors: ImportError[];
 };
 
+// --- F04 & F05: ATTENDANCE & RECONCILIATION TYPES ---
+
+export type AttendanceStatus = {
+  isCheckedIn: boolean;
+  isOnBreak: boolean;
+  timesheetId: number | null;
+  employeeId: number;
+  employeeName: string;
+  actualStartUtc: string | null;
+  breakStartUtc: string | null;
+  currentBreakMinutes: number;
+  workedMinutes: number;
+  currentShiftId: number | null;
+  shiftInfo: string | null;
+};
+
+export type BreakRecord = {
+  breakId: number;
+  breakType: string;
+  startTimeUtc: string;
+  endTimeUtc: string | null;
+  durationMinutes: number;
+};
+
+export type AttendanceException = {
+  exceptionId: number;
+  timesheetId: number;
+  exceptionType: string;
+  severity: "INFO" | "WARNING" | "CRITICAL";
+  descriptionVi: string;
+  descriptionDe: string;
+  status: "OPEN" | "RESOLVED" | "DISMISSED";
+  resolutionNotes: string | null;
+};
+
+export type Timesheet = {
+  timesheetId: number;
+  employeeId: number;
+  employeeName: string;
+  employeeCode: string;
+  positionName: string;
+  branchId: number;
+  shiftId: number | null;
+  workDate: string;
+  plannedStartUtc: string | null;
+  plannedEndUtc: string | null;
+  plannedBreakMinutes: number;
+  actualStartUtc: string | null;
+  actualEndUtc: string | null;
+  actualBreakMinutes: number;
+  workedMinutes: number;
+  lateMinutes: number;
+  earlyDepartureMinutes: number;
+  overtimeMinutes: number;
+  status: "OPEN" | "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "LOCKED";
+  hasException: boolean;
+  isLocked: boolean;
+  breaks: BreakRecord[];
+  exceptions: AttendanceException[];
+};
+
+export type ReconciliationKpi = {
+  totalTimesheets: number;
+  totalWorkedMinutes: number;
+  totalOvertimeMinutes: number;
+  totalLateMinutes: number;
+  openExceptionsCount: number;
+  pendingRequestsCount: number;
+  approvedTimesheetsCount: number;
+};
+
+export type ReconciliationItem = {
+  timesheetId: number;
+  employeeId: number;
+  employeeName: string;
+  employeeCode: string;
+  positionName: string;
+  branchId: number;
+  workDate: string;
+  plannedStartUtc: string | null;
+  plannedEndUtc: string | null;
+  plannedBreakMinutes: number;
+  actualStartUtc: string | null;
+  actualEndUtc: string | null;
+  actualBreakMinutes: number;
+  workedMinutes: number;
+  deltaMinutes: number;
+  lateMinutes: number;
+  earlyDepartureMinutes: number;
+  overtimeMinutes: number;
+  status: "OPEN" | "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "LOCKED";
+  hasException: boolean;
+  isLocked: boolean;
+  recalculationRequired: boolean;
+  exceptions: AttendanceException[];
+};
+
+export type AttendanceChangeRequest = {
+  requestId: number;
+  timesheetId: number;
+  employeeId: number;
+  employeeName: string;
+  employeeCode: string;
+  currentStartUtc: string | null;
+  currentEndUtc: string | null;
+  currentBreakMinutes: number;
+  requestedStartUtc: string | null;
+  requestedEndUtc: string | null;
+  requestedBreakMinutes: number | null;
+  reason: string;
+  evidenceUrl: string | null;
+  deltaMinutes: number;
+  requiresHrEscalation: boolean;
+  status: "PENDING" | "HR_ESCALATED" | "APPROVED" | "REJECTED";
+  decisionNotes: string | null;
+  decidedByUserId: number | null;
+  decidedAtUtc: string | null;
+  createdAtUtc: string;
+};
+
