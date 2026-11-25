@@ -1,370 +1,618 @@
 # TÀI LIỆU HƯỚNG DẪN KIỂM THỬ TOÀN DIỆN HỆ THỐNG ATELIER (DT06)
-## Phân hệ Nhân sự, Lịch ca, Chấm công, Đối soát & Phê duyệt Giờ công (Chuẩn Luật Lao động CHLB Đức)
+## Phân hệ Quản trị, Nhân sự, Lịch ca, Chấm công, Đối soát & Phê duyệt Giờ công
+### Chuẩn Luật Lao động CHLB Đức (ArbZG, MiLoG, MuSchG, JArbSchG & Phân tách nhiệm vụ SoD)
 
 ---
 
-## 1. MỤC ĐÍCH & PHẠM VI KIỂM THỬ
-
-Tài liệu này cung cấp hướng dẫn kiểm thử toàn diện từ đầu đến cuối (End-to-End Testing) cho toàn bộ hệ thống **Atelier - Restaurant HR & Payroll Management** được chuẩn hóa theo phương án **DT06 (Phương án C - Chuẩn Luật Lao động CHLB Đức)**.
-
-### Phạm vi bao gồm đầy đủ 6 phân hệ cốt lõi (F00 → F05):
-1. **F00 (Bảo mật & Trải nghiệm):** Đăng nhập, Xác thực hai bước (MFA/TOTP), Phân quyền RBAC, Phân tách nhiệm vụ (SoD), Chế độ Tối (Dark Mode), Giao diện song ngữ Việt - Đức (i18n).
-2. **F01 (Chi nhánh & Pháp nhân):** Chuỗi nhà hàng, cơ cấu pháp nhân, địa điểm làm việc thực tế, phân công địa điểm không bị ghi đè.
-3. **F02 (Hồ sơ nhân sự & Hợp đồng):** Hồ sơ nhân viên, dòng thời gian hợp đồng và mức lương (MiLoG ≥ 12,41 €/h, Minijob ≤ 538 €), nhóm bảo vệ đặc biệt (MuSchG thai sản, JArbSchG thanh thiếu niên), nhập liệu hàng loạt bằng CSV với chế độ Dry-Run.
-4. **F03 (Xếp lịch ca & Luật lao động ArbZG):** Lịch làm việc tuần, mẫu ca làm việc, kiểm tra cảnh báo luật lao động Đức (ArbZG §3, §4, §5, §11), hộp thoại xác nhận xóa ca nội bộ, công bố lịch ca có phiên bản & audit trail, sàn đổi ca trực (Shift Swap Center).
-5. **F04 (Chấm công trực tiếp & Quản lý nghỉ giữa ca):** Check-in / Check-out thời gian thực với timestamp UTC bất biến, ghi nhận nghỉ giữa ca thực tế theo ArbZG §4, phát hiện bất thường tự động (quên check-out, đi muộn, về sớm, thiếu giờ nghỉ, làm quá 10h), bổ sung giờ công thủ công có kiểm soát.
-6. **F05 (Đối soát, sửa & phê duyệt giờ công):** Bảng đối soát 3 trục (Lịch ca vs Thực tế vs Chênh lệch phút), nhân viên gửi đơn xin sửa giờ, quy tắc leo thang HR tự động khi chênh lệch > 60 phút (US-026), ngăn chặn người quản lý tự duyệt ca của bản thân (SoD), khóa kỳ chấm công (Period Locking - US-028), lưu vết điều chỉnh (Audit Trail) và đánh dấu tái tính toán phục vụ Payroll.
-
----
-
-## 2. MÔI TRƯỜNG THỰC THI & TÀI KHOẢN MẪU
-
-### 2.1. Địa chỉ dịch vụ
-* **Giao diện Web (Frontend):** `http://127.0.0.1:5173`
-* **Dịch vụ API (Backend):** `http://127.0.0.1:8080/api`
-* **Cơ sở dữ liệu:** MySQL 8.0 (`restaurant_hr_payroll_management`) trên cổng `3306`
-
-### 2.2. Danh sách tài khoản thử nghiệm theo vai trò
-
-| Tài khoản (Username / Email) | Mật khẩu | Vai trò (Role) | Chức vụ thực tế | Phạm vi quyền hạn | Ghi chú nút tắt |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `admin@restaurant.example` | `Password123!` | `SYSTEM_ADMIN` | Quản trị viên hệ thống | Toàn quyền kiểm soát, phê duyệt đơn leo thang HR, khóa kỳ công, giải quyết xung đột SoD | Nút tắt `Quản trị` |
-| `tobias.hoffmann@restaurant.example` | `Password123!` | `RESTAURANT_MANAGER` | Quản lý nhà hàng (Stuttgart) | Quản lý ca trực, xem bảng đối soát chi nhánh, duyệt ca của nhân viên khác (không được tự duyệt chính mình) | Nút tắt `QL Tobias` |
-| `anna.mueller@restaurant.example` | `Password123!` | `EMPLOYEE` | Nhân viên phục vụ (Servicekraft) | Chấm công trực tiếp, xem ca cá nhân, gửi yêu cầu đổi ca, gửi đơn xin sửa giờ | Nút tắt `NV Anna` |
-| `markus.weber@restaurant.example` | `Password123!` | `EMPLOYEE` | Đầu bếp (Koch) | Chấm công ca bếp, đổi ca, kiểm tra giờ làm và số phút nghỉ | Nhân viên Full-time |
-| `sophie.fischer@restaurant.example` | `Password123!` | `EMPLOYEE` | Nhân viên (Thai sản MuSchG) | Được bảo vệ thai sản theo luật Đức (cấm ca đêm 20:00 - 06:00, cấm làm thêm giờ) | Nhóm bảo vệ đặc biệt |
+## MỤC LỤC
+1. [Hướng dẫn cài đặt & Khởi chạy hệ thống trên CMD (Command Prompt / PowerShell)](#1-hướng-dẫn-cài-đặt--khởi-chạy-hệ-thống-trên-cmd)
+2. [Bản đồ tài khoản kiểm thử theo vị trí & Phân định chức năng (Role Matrix)](#2-bản-đồ-tài-khoản-kiểm-thử-theo-vị-trí--phân-định-chức-năng)
+3. [Hướng dẫn chạy kiểm thử tự động (Automated Test Suite)](#3-hướng-dẫn-chạy-kiểm-thử-tự-động)
+4. [Ma trận kịch bản kiểm thử chi tiết theo từng vai trò (F00 → F05)](#4-ma-trận-kịch-bản-kiểm-thử-chi-tiết)
+   - [Phân hệ F00: Bảo mật, Phân quyền & Trải nghiệm người dùng](#phân-hệ-f00-bảo-mật-phân-quyền--trải-nghiệm-người-dùng)
+   - [Phân hệ F01: Cơ cấu Chi nhánh & Pháp nhân chuỗi nhà hàng](#phân-hệ-f01-cơ-cấu-chi-nhánh--pháp-nhân-chuỗi-nhà-hàng)
+   - [Phân hệ F02: Hồ sơ Nhân sự, Hợp đồng & Luật Lương Đức (MiLoG, Minijob, MuSchG)](#phân-hệ-f02-hồ-sơ-nhân-sự-hợp-đồng--luật-lương-đức)
+   - [Phân hệ F03: Xếp lịch ca & Kiểm soát Luật Lao động Đức (ArbZG §3, §4, §5, §11)](#phân-hệ-f03-xếp-lịch-ca--kiểm-soát-luật-lao-động-đức)
+   - [Phân hệ F04: Chấm công trực tiếp & Quản lý Nghỉ giữa ca](#phân-hệ-f04-chấm-công-trực-tiếp--quản-lý-nghỉ-giữa-ca)
+   - [Phân hệ F05: Đối soát, Sửa giờ & Phê duyệt (Quy tắc SoD, Leo thang HR >60m, Khóa kỳ)](#phân-hệ-f05-đối-soát-sửa-giờ--phê-duyệt)
+5. [Bảng tổng hợp ràng buộc pháp lý & Phân tách nhiệm vụ (Compliance Checklist)](#5-bảng-tổng-hợp-ràng-buộc-pháp-lý)
+6. [Mẫu biên bản nghiệm thu kiểm thử (Sign-off Template)](#6-mẫu-biên-bản-nghiệm-thu-kiểm-thử)
 
 ---
 
-## 3. HƯỚNG DẪN CHẠY KIỂM THỬ TỰ ĐỘNG (AUTOMATED TEST SUITE)
+## 1. HƯỚNG DẪN CÀI ĐẶT & KHỞI CHẠY HỆ THỐNG TRÊN CMD
 
-### 3.1. Chạy kiểm thử tự động tầng Backend (Spring Boot / JUnit 5)
-Mở cửa sổ dòng lệnh (Terminal / PowerShell) tại thư mục `backend`:
-```powershell
-cd backend
-.\mvnw.cmd test
+Phần này hướng dẫn chi tiết cách mở và chạy toàn bộ hệ thống từ màn hình dòng lệnh **Command Prompt (cmd.exe)** hoặc **PowerShell** trên Windows.
+
+### 1.1. Yêu cầu môi trường tối thiểu
+* **Hệ điều hành:** Windows 10/11 (hoặc macOS/Linux tương đương).
+* **Java Development Kit (JDK):** Java 21 trở lên (khuyến nghị Java 27 hoặc Java 21 LTS).
+* **Node.js & npm:** Node.js v18 trở lên (khuyến nghị Node.js v20+).
+* **Hệ quản trị CSDL MySQL:** MySQL Server 8.0 đang chạy trên cổng `3306`.
+
+### 1.2. Bước 1: Kiểm tra dịch vụ Cơ sở dữ liệu MySQL
+Mở cửa sổ `cmd.exe` với quyền Administrator (hoặc user thông thường) và kiểm tra dịch vụ MySQL:
+```cmd
+net start MySQL80
 ```
-* **Tiêu chuẩn đạt (PASS):** Kết quả hiển thị **`BUILD SUCCESS`** với toàn bộ **`Tests run: 24, Failures: 0, Errors: 0, Skipped: 0`**. Toàn bộ logic kiểm tra luật lao động Đức (ArbZG §3, §4, §5, §11), phân tách nhiệm vụ (SoD), xác thực tài khoản và tính toán lương/thời gian đều vượt qua.
+*(Nếu dịch vụ đã chạy, màn hình sẽ thông báo: `The requested service has already been started`)*.
 
-### 3.2. Chạy kiểm thử biên dịch Frontend (React / TypeScript / Vite)
-Mở cửa sổ dòng lệnh tại thư mục `frontend`:
-```powershell
-cd frontend
+> [!NOTE]
+> Database mặc định được cấu hình trong `backend/src/main/resources/application.properties`:
+> - Tên database: `restaurant_hr_payroll_management`
+> - Tài khoản: `root`
+> - Mật khẩu: `Vomy1011@`
+
+---
+
+### 1.3. Bước 2: Khởi động Backend (Spring Boot) trên CMD
+1. Mở một cửa sổ **Command Prompt (CMD)** mới.
+2. Điều hướng đến thư mục `backend` của dự án:
+   ```cmd
+   cd /d "c:\Users\FPTSHOP NAN K6 CG\OneDrive\Tài liệu\restaurant-hr-payroll-management\backend"
+   ```
+3. Chạy lệnh khởi động Spring Boot qua Maven Wrapper:
+   ```cmd
+   mvnw.cmd spring-boot:run
+   ```
+4. **Dấu hiệu thành công:** Khi nhìn thấy các dòng log:
+   ```text
+   Tomcat started on port 8080 (http) with context path '/'
+   Started BackendApplication in X.XXX seconds
+   ```
+   Backend đã sẵn sàng phục vụ API tại địa chỉ: `http://localhost:8080/api`.
+
+---
+
+### 1.4. Bước 3: Khởi động Frontend (React / Vite) trên CMD
+1. Mở thêm một cửa sổ **Command Prompt (CMD)** thứ hai (giữ nguyên cửa sổ Backend đang chạy).
+2. Điều hướng đến thư mục `frontend`:
+   ```cmd
+   cd /d "c:\Users\FPTSHOP NAN K6 CG\OneDrive\Tài liệu\restaurant-hr-payroll-management\frontend"
+   ```
+3. Khởi chạy máy chủ phát triển Vite:
+   ```cmd
+   npm.cmd run dev
+   ```
+4. **Dấu hiệu thành công:** Màn hình hiển thị:
+   ```text
+   VITE v8.3.8 ready in 328 ms
+   ➜ Local: http://127.0.0.1:5173/
+   ```
+
+---
+
+### 1.5. Bước 4: Mở trình duyệt Web
+* Mở trình duyệt (Google Chrome, Microsoft Edge, Firefox) và truy cập vào:
+  ```text
+  http://127.0.0.1:5173
+  ```
+* Giao diện đăng nhập hệ thống **Atelier** sẽ xuất hiện với đầy đủ các nút bấm đăng nhập nhanh theo vai trò.
+
+---
+
+### 1.6. Xử lý sự cố CMD thường gặp
+* **Lỗi cổng 8080 hoặc 5173 bị xung đột:**
+  Nếu xuất hiện lỗi `Port 8080 was already in use`, mở CMD và giải phóng cổng:
+  ```cmd
+  netstat -ano | findstr :8080
+  taskkill /F /PID <Mã_PID_tìm_thấy>
+  ```
+* **Lỗi không kết nối được MySQL:**
+  Kiểm tra xem MySQL service có đang chạy không:
+  ```cmd
+  sc query MySQL80
+  ```
+
+---
+
+## 2. BẢN ĐỒ TÀI KHOẢN KIỂM THỬ THEO VỊ TRÍ & PHÂN ĐỊNH CHỨC NĂNG
+
+Để đảm bảo tính độc lập, an toàn thông tin và tuân thủ nguyên tắc **Phân tách nhiệm vụ (Segregation of Duties - SoD)** theo chuẩn quốc tế, mỗi vị trí trong nhà hàng được cấp tài khoản riêng với phạm vi chức năng rõ rệt:
+
+```
++-----------------------------------------------------------------------------------+
+|                         CƠ CẤU VAI TRÒ HỆ THỐNG ATELIER                           |
++-----------------------------------------------------------------------------------+
+|  1. QUẢN TRỊ VIÊN HỆ THỐNG (admin@restaurant.example)                             |
+|     - Toàn quyền hệ thống, RBAC & SoD Matrix                                      |
+|     - Phê duyệt các đơn leo thang HR > 60m (US-026)                               |
+|     - Khóa kỳ công chi nhánh (US-028) & Giải quyết xung đột SoD                   |
++-----------------------------------------------------------------------------------+
+|  2. QUẢN LÝ NHÀ HÀNG (tobias.hoffmann@restaurant.example - Stuttgart Mitte)        |
+|     - Quản lý chi nhánh, tạo hợp đồng nhân viên (MiLoG, Minijob)                  |
+|     - Xếp lịch ca tuần, kiểm soát ArbZG, công bố lịch, duyệt đổi ca               |
+|     - Theo dõi bảng đối soát ca 3 trục, bổ sung giờ công thủ công (F04.05)        |
+|     - Duyệt bảng công của nhân viên cấp dưới (KHÔNG ĐƯỢC TỰ DUYỆT BẢN THÂN - SoD) |
++-----------------------------------------------------------------------------------+
+|  3. NHÂN VIÊN PHỤC VỤ (anna.mueller@restaurant.example - Servicekraft)            |
+|     - Check-in / Check-out trực tiếp trên Web/Kiosk                               |
+|     - Ghi nhận bắt đầu & kết thúc nghỉ giữa ca (ArbZG §4)                         |
+|     - Xem Timesheet cá nhân, gửi yêu cầu đổi ca trên sàn (Shift Swap)             |
+|     - Gửi đơn xin sửa giờ công (Change Request)                                   |
++-----------------------------------------------------------------------------------+
+|  4. ĐẦU BẾP TOÀN THỜI GIAN (markus.weber@restaurant.example - Koch)              |
+|     - Chấm công ca bếp, kiểm tra cảnh báo vi phạm giờ nghỉ ArbZG §4               |
+|     - Nhận và xác nhận yêu cầu đổi ca trực với nhân viên khác                     |
++-----------------------------------------------------------------------------------+
+|  5. NHÂN VIÊN THAI SẢN (sophie.fischer@restaurant.example - Chế độ MuSchG)       |
+|     - Kiểm tra chính sách bảo vệ thai sản theo Luật Đức (cấm ca đêm, cấm overtime)|
++-----------------------------------------------------------------------------------+
+```
+
+### Bảng thông tin tài khoản đăng nhập chi tiết:
+
+| STT | Vị trí / Chức vụ | Tên nhân sự | Tên đăng nhập (Email) | Mật khẩu | Mã nhân viên | Nút bấm nhanh trên Login | Chức năng chủ trì kiểm thử |
+| :---: | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
+| **1** | **Quản trị viên hệ thống** | Admin Hệ thống | `admin@restaurant.example` | `Password123!` | - | `Quản trị` | F00 (RBAC, SoD), F05 (Duyệt leo thang HR, Khóa kỳ công, Duyệt SoD cho Quản lý) |
+| **2** | **Quản lý nhà hàng** | Tobias Hoffmann | `tobias.hoffmann@restaurant.example` | `Password123!` | `E-0005` | `QL Tobias` | F01 (Chi nhánh), F02 (Tạo NV, Lương MiLoG), F03 (Xếp ca, ArbZG), F04 (Bổ sung thủ công), F05 (Bảng đối soát, Duyệt NV cấp dưới) |
+| **3** | **Nhân viên phục vụ** | Anna Müller | `anna.mueller@restaurant.example` | `Password123!` | `E-0002` | `NV Anna` | F04 (Check-in/out, Nghỉ ca), F03 (Gửi đổi ca), F05 (Gửi đơn xin sửa giờ ≤60m và >60m) |
+| **4** | **Đầu bếp** | Markus Weber | `markus.weber@restaurant.example` | `Password123!` | `E-0003` | Điền tay | F03 (Đổi ca với Anna), F04 (Test vi phạm nghỉ <30m theo ArbZG §4) |
+| **5** | **Nhân viên (Thai sản)** | Sophie Fischer | `sophie.fischer@restaurant.example` | `Password123!` | `E-0004` | Điền tay | F02 & F03 (Kiểm tra chặn xếp ca đêm 20:00 - 06:00 và cấm làm thêm giờ) |
+
+---
+
+## 3. HƯỚNG DẪN CHẠY KIỂM THỬ TỰ ĐỘNG
+
+Bộ kiểm thử tự động xác minh tính toàn vẹn của mã nguồn từ tầng dịch vụ logic (Backend) đến giao diện (Frontend):
+
+### 3.1. Chạy Backend Unit & Integration Tests trên CMD:
+```cmd
+cd /d "c:\Users\FPTSHOP NAN K6 CG\OneDrive\Tài liệu\restaurant-hr-payroll-management\backend"
+mvnw.cmd test
+```
+* **Kết quả yêu cầu:** `BUILD SUCCESS` - `Tests run: 24, Failures: 0, Errors: 0, Skipped: 0`.
+
+### 3.2. Chạy Frontend Type-check & Production Build trên CMD:
+```cmd
+cd /d "c:\Users\FPTSHOP NAN K6 CG\OneDrive\Tài liệu\restaurant-hr-payroll-management\frontend"
 npm.cmd run build
 ```
-* **Tiêu chuẩn đạt (PASS):** Quá trình Type-checking (`tsc -b`) và bundling (`vite build`) hoàn thành với **0 lỗi**, sinh gói tĩnh trong thư mục `dist/` trong vòng ~1-2 giây.
+* **Kết quả yêu cầu:** `✓ built in 1.xx s` - Biên dịch 0 lỗi TypeScript.
 
 ---
 
-## 4. MA TRẬN KỊCH BẢN KIỂM THỬ CHI TIẾT (TEST CASES F00 → F05)
+## 4. MA TRẬN KỊCH BẢN KIỂM THỬ CHI TIẾT
 
-### PHÂN HỆ F00: BẢO MẬT, PHÂN QUYỀN & TRẢI NGHIỆM
+---
 
-#### TC-F00-01: Đăng nhập sai và Thông báo lỗi bằng tiếng Việt chuẩn
-* **Mục tiêu:** Kiểm tra hệ thống phát hiện mật khẩu không đúng, không lộ thông tin nội bộ và thông báo tiếng Việt mượt mà.
+### PHÂN HỆ F00: BẢO MẬT, PHÂN QUYỀN & TRẢI NGHIỆM NGƯỜI DÙNG
+
+#### TC-F00-01: Kiểm tra Đăng nhập sai và Thông báo lỗi tiếng Việt
+* **Tài khoản kiểm thử:** Bất kỳ (ví dụ: `anna.mueller@restaurant.example` - Nhân viên).
+* **Mục tiêu:** Đảm bảo hệ thống phát hiện mật khẩu sai, bảo vệ an toàn và hiển thị thông báo lỗi tiếng Việt thân thiện, không lộ mã lỗi kỹ thuật.
 * **Các bước:**
   1. Truy cập `http://127.0.0.1:5173/`.
-  2. Chọn ngôn ngữ `VI` ở thanh công cụ góc trên.
-  3. Nhập email: `anna.mueller@restaurant.example`, mật khẩu: `MatKhauSai999!`.
+  2. Bấm nút cờ `VI` ở thanh trên cùng để chọn tiếng Việt.
+  3. Nhập Email: `anna.mueller@restaurant.example`, Mật khẩu sai: `MatKhauSai999!`.
   4. Bấm **"Vào làm việc"**.
 * **Kết quả mong đợi:**
-  * Xuất hiện thông báo lỗi tiếng Việt: *"Đăng nhập không thành công. Vui lòng kiểm tra lại tài khoản hoặc mật khẩu."*
-  * Không rò rỉ mã lỗi Java hay thông báo tiếng Đức khi đang ở chế độ tiếng Việt.
+  * Thông báo lỗi hiển thị rõ ràng: *"Đăng nhập không thành công. Vui lòng kiểm tra lại tài khoản hoặc mật khẩu."*
+  * Không xuất hiện chuỗi tiếng Đức hoặc mã lỗi 500.
 
-#### TC-F00-02: Đăng nhập nhanh và Chuyển hướng theo vai trò
+#### TC-F00-02: Đăng nhập theo vai trò Quản lý nhà hàng
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý - Nút bấm `QL Tobias`).
+* **Mục tiêu:** Kiểm tra vai trò Quản lý nhà hàng được cấp quyền điều hành chi nhánh, xếp ca và đối soát.
 * **Các bước:**
-  1. Bấm nút tắt **"QL Tobias"** trên giao diện đăng nhập.
-  2. Bấm **"Vào làm việc"**.
+  1. Tại trang đăng nhập, bấm nút nhanh **"QL Tobias"**.
+  2. Bấm nút **"Vào làm việc"**.
 * **Kết quả mong đợi:**
-  * Đăng nhập thành công, chuyển thẳng đến màn hình **Tổng quan** (`#overview`).
-  * Huy hiệu người dùng hiển thị: *"Tobias Hoffmann - Quản lý nhà hàng"*.
+  * Đăng nhập thành công, chuyển hướng vào màn hình Tổng quan (`#overview`).
+  * Huy hiệu dưới góc trái ghi: *"Tobias Hoffmann - Quản lý nhà hàng"*.
+  * Thanh menu hiển thị đầy đủ các phân hệ: *Tổng quan, Chi nhánh, Hồ sơ & Hợp đồng, Lịch ca làm việc, Chấm công cá nhân, Đối soát & Phê duyệt, Bảo mật*.
 
-#### TC-F00-03: Chuyển đổi song ngữ Việt - Đức (i18n) & Chế độ tối (Dark Mode)
+#### TC-F00-03: Đăng nhập theo vai trò Nhân viên phục vụ
+* **Tài khoản kiểm thử:** `anna.mueller@restaurant.example` (Nhân viên - Nút bấm `NV Anna`).
+* **Mục tiêu:** Kiểm tra giao diện dành cho nhân viên chỉ hiển thị các chức năng cá nhân phù hợp.
 * **Các bước:**
-  1. Bấm chuyển đổi giữa cờ `VI` và `DE`.
-  2. Bấm icon Mặt trăng / Mặt trời để bật/tắt Dark Mode.
+  1. Đăng xuất tài khoản hiện tại (bấm nút Thoát ở góc trái dưới).
+  2. Bấm nút nhanh **"NV Anna"**, bấm **"Vào làm việc"**.
 * **Kết quả mong đợi:**
-  * Menu, tiêu đề bảng, nhãn trường, trạng thái ca chuyển dịch lập tức giữa hai ngôn ngữ.
-  * Ở Dark Mode: Nền xanh đen sâu thẳm, chữ xám bạc và trắng rõ nét, tương phản cao, không có tình trạng nút bị tàng hình.
+  * Đăng nhập thành công, huy hiệu hiển thị: *"Anna Müller - Nhân viên"*.
+  * Menu tập trung vào các chức năng nhân viên: *Chấm công cá nhân*, *Lịch ca làm việc* (chế độ xem ca của mình), *Bảo mật*.
+
+#### TC-F00-04: Chuyển đổi song ngữ (Việt - Đức) & Chế độ tối (Dark Mode)
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý).
+* **Các bước:**
+  1. Bấm nút chuyển đổi ngôn ngữ giữa `VI` và `DE`.
+  2. Bấm icon Mặt trăng / Mặt trời để bật Chế độ tối.
+* **Kết quả mong đợi:**
+  * Toàn bộ menu, tiêu đề, nút bấm, thông báo trạng thái ca chuyển dịch tức thì.
+  * Ở Dark Mode: Nền xanh đen sâu dịu mắt, độ tương phản văn bản cao, tất cả các nút bấm và nhãn trạng thái đều rõ ràng.
+
+#### TC-F00-05: Kiểm tra Ma trận Phân quyền & Phân tách nhiệm vụ (SoD Matrix)
+* **Tài khoản kiểm thử:** `admin@restaurant.example` (Quản trị viên - Nút bấm `Quản trị`).
+* **Lý do dùng tài khoản này:** Chỉ Quản trị viên hệ thống mới có quyền truy cập sâu vào cấu hình bảo mật IAM và ma trận SoD.
+* **Các bước:**
+  1. Đăng nhập bằng nút **"Quản trị"**.
+  2. Vào menu **"Bảo mật tài khoản"** (`#security`), chọn tab **"Ma trận Phân quyền & SoD"**.
+* **Kết quả mong đợi:**
+  * Hiển thị bảng ma trận phân quyền RBAC và các cặp quyền xung đột (Incompatible Roles).
+  * Quy tắc cấm tự duyệt (Self-Approval Prohibited) được định nghĩa rõ ràng.
 
 ---
 
-### PHÂN HỆ F01: CƠ CẤU CHI NHÁNH & PHÁP NHÂN
+### PHÂN HỆ F01: CƠ CẤU CHI NHÁNH & PHÁP NHÂN CHUỖI NHÀ HÀNG
 
-#### TC-F01-01: Quản lý Chi nhánh Nhà hàng & Địa điểm làm việc
+#### TC-F01-01: Quản lý Chi nhánh Nhà hàng & Địa điểm làm việc thực tế
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý nhà hàng).
+* **Lý do dùng tài khoản này:** Quản lý nhà hàng có trách nhiệm giám sát địa điểm làm việc và nhân sự tại chi nhánh mình quản lý.
 * **Các bước:**
   1. Vào menu **"Chi nhánh"** (`#branches`).
-  2. Quan sát danh sách 3 chi nhánh mẫu: *Stuttgart Mitte*, *Karlsruhe City*, *Freiburg Altstadt*.
-  3. Bấm vào chi nhánh *Stuttgart Mitte* để mở Drawer chi tiết.
+  2. Chọn chi nhánh **"Demo Stuttgart Mitte"**.
 * **Kết quả mong đợi:**
-  * Hiển thị đầy đủ thông tin: Mã chi nhánh, Địa chỉ, Bang (Baden-Württemberg), Múi giờ bắt buộc `Europe/Berlin`, danh sách nhân sự được phân công và vị trí.
+  * Hiển thị ngăn kéo chi tiết (Drawer): Tên chi nhánh, Mã chi nhánh (`STR-01`), Thành phố Stuttgart, Bang Baden-Württemberg, Múi giờ bắt buộc `Europe/Berlin`.
+  * Danh sách nhân sự đang phân công tại chi nhánh (Tobias, Anna, Markus, Sophie).
 
 ---
 
 ### PHÂN HỆ F02: HỒ SƠ NHÂN SỰ, HỢP ĐỒNG & LUẬT LƯƠNG ĐỨC
 
-#### TC-F02-01: Thêm mới nhân sự & Kiểm soát mức lương tối thiểu (MiLoG ≥ 12,41 €/h)
-* **Mục tiêu:** Kiểm tra form modal thêm nhân viên chuẩn hóa 3 khối và bắt buộc tuân thủ luật lương tối thiểu của Đức.
+#### TC-F02-01: Thêm mới nhân sự & Ràng buộc Mức lương tối thiểu Đức (MiLoG ≥ 12,41 €/h)
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý nhà hàng).
+* **Lý do dùng tài khoản này:** Quản lý nhà hàng chịu trách nhiệm tuyển dụng và nhập thông tin hợp đồng cho nhân sự mới của chi nhánh.
 * **Các bước:**
   1. Vào menu **"Hồ sơ & Hợp đồng"** (`#workforce`).
-  2. Bấm nút xanh **"+ Thêm nhân viên"**.
-  3. Nhập họ tên, email, chọn chi nhánh và vị trí.
-  4. Tại mục lương, nhập mức lương giờ: `11.00` €/h (vi phạm luật).
-  5. Bấm **"Tạo hồ sơ nhân viên"**.
+  2. Bấm nút màu xanh ngọc: **"+ Thêm nhân viên"**.
+  3. Điền thông tin nhân viên mới:
+     - Họ và tên: `Hans Schmidt`
+     - Email: `hans.schmidt@restaurant.example`
+     - Chi nhánh: `Demo Stuttgart Mitte`
+     - Vị trí: `Nhân viên phục vụ (Servicekraft)`
+     - Loại hợp đồng: `Toàn thời gian (Vollzeit)`
+  4. Tại ô mức lương giờ, nhập mức vi phạm luật: `10.50` €/h (< 12,41 €/h).
+  5. Bấm nút **"Tạo hồ sơ nhân viên"**.
 * **Kết quả mong đợi:**
-  * Hệ thống phát hiện vi phạm và báo lỗi: *"Mức lương giờ phải tối thiểu bằng mức lương quy định theo luật Đức (12.41 €/h)"*.
-  * Sửa lại thành `14.50` €/h và bấm tạo -> Tạo hồ sơ thành công.
+  * Hệ thống chặn lưu và hiển thị cảnh báo đỏ: *"Mức lương giờ phải tối thiểu bằng mức lương quy định theo luật Đức (12.41 €/h)"*.
+  * Sửa lại thành `14.00` €/h và bấm tạo -> Hồ sơ được lưu thành công vào cơ sở dữ liệu.
 
-#### TC-F02-02: Kiểm soát trần thu nhập Minijob (≤ 538,00 €/tháng)
+#### TC-F02-02: Ràng buộc trần thu nhập Minijob (≤ 538,00 €/tháng)
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý nhà hàng).
 * **Các bước:**
-  1. Trong modal thêm nhân viên, chọn loại hợp đồng: **"Minijob (≤ 538 €)"**.
-  2. Nhập mức lương tháng: `650.00` €.
+  1. Trong form thêm nhân viên, chọn loại hợp đồng: **"Minijob (≤ 538 €)"**.
+  2. Nhập mức lương tháng: `620.00` €/tháng (> 538 €).
   3. Bấm **"Tạo hồ sơ nhân viên"**.
 * **Kết quả mong đợi:**
   * Hệ thống chặn và cảnh báo: *"Thu nhập Minijob không được vượt quá giới hạn luật định (538.00 €/tháng)"*.
 
-#### TC-F02-03: Nhóm bảo vệ đặc biệt (MuSchG - Thai sản & JArbSchG - Vị thành niên)
+#### TC-F02-03: Kiểm tra chế độ bảo vệ thai sản theo Luật Đức (MuSchG)
+* **Tài khoản kiểm thử:** `tobias.hoffmann` xem hồ sơ của `sophie.fischer@restaurant.example`.
+* **Mục tiêu:** Xác minh hồ sơ của nhân viên thai sản được gắn cờ bảo vệ quyền lợi hợp pháp.
 * **Các bước:**
-  1. Tại bảng danh sách, chọn nhân viên **Sophie Fischer**.
+  1. Tại danh sách nhân viên, bấm vào dòng của **Sophie Fischer**.
   2. Chuyển sang tab **"Điều kiện bảo vệ"**.
 * **Kết quả mong đợi:**
-  * Hiển thị huy hiệu bảo vệ thai sản MuSchG kèm quy tắc: Cấm làm việc ca đêm từ 20:00 - 06:00, cấm làm thêm giờ quá 8.5 giờ/ngày.
+  * Hiển thị điều kiện bảo vệ thai sản **MuSchG**: Cấm phân công ca đêm từ 20:00 - 06:00, cấm làm thêm giờ quá 8.5 giờ/ngày.
 
-#### TC-F02-04: Nhập liệu hàng loạt qua CSV với cơ chế Dry-Run
+#### TC-F02-04: Nhập liệu nhân sự hàng loạt qua CSV với cơ chế Dry-Run
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý nhà hàng).
 * **Các bước:**
   1. Bấm nút **"Nhập file CSV"**.
-  2. Dán dữ liệu kiểm thử (có 1 dòng hợp lệ và 1 dòng vi phạm trùng mã hoặc lương thấp).
-  3. Bấm **"Kiểm tra trước (Dry-Run)"**.
+  2. Dán dữ liệu thử nghiệm có 1 dòng hợp lệ và 1 dòng vi phạm mã trùng.
+  3. Bấm nút **"Kiểm tra trước (Dry-Run)"**.
 * **Kết quả mong đợi:**
-  * Hệ thống không chèn vào database ngay mà hiển thị bảng xem trước: Số dòng hợp lệ, số dòng lỗi và lý do lỗi chi tiết bằng tiếng Việt.
-  * Chỉ khi xác nhận nhập, các dòng hợp lệ mới được cập nhật.
+  * Hệ thống kiểm tra trước mà không chèn vào database, báo cáo chi tiết: Số dòng hợp lệ, số dòng lỗi và lý do lỗi bằng tiếng Việt.
 
 ---
 
-### PHÂN HỆ F03: XẾP LỊCH CA & LUẬT LAO ĐỘNG ĐỨC (ArbZG)
+### PHÂN HỆ F03: XẾP LỊCH CA & KIỂM SOÁT LUẬT LAO ĐỘNG ĐỨC
 
-#### TC-F03-01: Kiểm tra tự động 4 quy tắc Luật Lao động Đức (ArbZG)
-* **Quy tắc 1: Khoảng cách nghỉ giữa 2 ca tối thiểu 11 giờ (ArbZG §5):**
-  * Xếp ca ngày 1 kết thúc lúc `23:00`, xếp tiếp ca ngày 2 cho cùng nhân viên bắt đầu lúc `07:00` sáng hôm sau (nghỉ 8h < 11h).
-  * *Kết quả:* Hiển thị cảnh báo đỏ vi phạm ArbZG §5 kèm số giờ nghỉ thiếu.
-* **Quy tắc 2: Giới hạn tối đa 10 giờ làm việc mỗi ngày (ArbZG §3):**
-  * Xếp ca kéo dài 11 tiếng trong ngày.
-  * *Kết quả:* Cảnh báo đỏ vi phạm ArbZG §3: Thời gian làm việc tối đa không được vượt quá 10 giờ.
-* **Quy tắc 3: Nghỉ giải lao bắt buộc giữa ca (ArbZG §4):**
-  * Xếp ca 7 tiếng nhưng đặt thời gian nghỉ là `0` phút.
-  * *Kết quả:* Cảnh báo vi phạm ArbZG §4: Ca làm việc trên 6 giờ bắt buộc có tối thiểu 30 phút nghỉ.
-* **Quy tắc 4: Cảnh báo làm việc ngày Chủ nhật (ArbZG §11):**
+#### TC-F03-01: Quản lý tạo ca làm việc theo tuần
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý nhà hàng).
+* **Lý do dùng tài khoản này:** Quản lý nhà hàng là người có thẩm quyền xếp lịch tuần cho nhân sự chi nhánh.
+* **Các bước:**
+  1. Vào menu **"Lịch ca làm việc"** (`#scheduling`).
+  2. Chọn chi nhánh `Demo Stuttgart Mitte`.
+  3. Bấm **"+ Thêm ca trực"**, chọn nhân viên `Markus Weber`, thứ Hai, giờ từ `09:00` đến `17:00`, nghỉ `30m`.
+  4. Bấm **"Lưu ca trực"**.
+* **Kết quả mong đợi:**
+  * Ca làm việc xuất hiện trên ô thứ Hai của Markus Weber với trạng thái *Bản nháp*.
+
+#### TC-F03-02: Kiểm tra tự động 4 quy tắc Luật Lao động Đức (ArbZG)
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý nhà hàng).
+* **Kịch bản A (Nghỉ giữa 2 ca tối thiểu 11 giờ - ArbZG §5):**
+  * Xếp ca thứ Ba kết thúc lúc `23:00`, xếp tiếp ca thứ Tư cho Markus Weber bắt đầu lúc `07:00` sáng (thời gian nghỉ 8h < 11h).
+  * *Kết quả:* Xuất hiện cảnh báo màu đỏ vi phạm **ArbZG §5**: Khoảng cách nghỉ giữa 2 ca phải tối thiểu 11 giờ liên tục.
+* **Kịch bản B (Thời gian làm việc tối đa 10h/ngày - ArbZG §3):**
+  * Xếp ca kéo dài từ `08:00` đến `19:30` (11.5 giờ làm việc).
+  * *Kết quả:* Xuất hiện cảnh báo vi phạm **ArbZG §3**: Thời gian làm việc mỗi ngày không được vượt quá 10 giờ.
+* **Kịch bản C (Nghỉ giải lao bắt buộc giữa ca - ArbZG §4):**
+  * Xếp ca làm việc 7 giờ nhưng đặt thời gian nghỉ là `0` phút.
+  * *Kết quả:* Cảnh báo vi phạm **ArbZG §4**: Ca làm việc trên 6 giờ bắt buộc có tối thiểu 30 phút nghỉ.
+* **Kịch bản D (Làm việc ngày Chủ nhật - ArbZG §11):**
   * Xếp ca làm việc vào ngày Chủ nhật.
-  * *Kết quả:* Thẻ ca hiển thị nhãn cảnh báo `ArbZG §11`, nhắc nhở bố trí ngày nghỉ bù trong 2 tuần tiếp theo.
+  * *Kết quả:* Cột Chủ nhật hiển thị nhãn vàng cảnh báo **ArbZG §11**, nhắc nhở nghĩa vụ bố trí ngày nghỉ bù trong 2 tuần.
 
-#### TC-F03-02: Hộp thoại xác nhận xóa ca an toàn (Modal Dialog)
+#### TC-F03-03: Hộp thoại xác nhận xóa ca nội bộ an toàn (Modal Dialog)
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý).
 * **Các bước:**
-  1. Rê chuột lên một thẻ ca bất kỳ trên lịch tuần.
-  2. Bấm vào icon **`✕`** (Xóa ca).
+  1. Rê chuột lên thẻ ca vừa tạo, bấm icon dấu **`✕`** (Xóa ca).
 * **Kết quả mong đợi:**
-  * Mở hộp thoại xác nhận nội bộ với thông tin nhân viên, ngày làm, giờ ca.
-  * Bấm nút **"Xác nhận xóa ca"** màu đỏ -> Ca làm việc được xóa mượt mà, không dùng `confirm()` mặc định của trình duyệt.
+  * Mở hộp thoại modal nội bộ xác nhận: Hiển thị tên nhân viên, ngày ca làm việc và giờ ca.
+  * Bấm nút đỏ **"Xác nhận xóa ca"** -> Ca trực được xóa an toàn khỏi lịch tuần mà không dùng popup mặc định của trình duyệt.
 
-#### TC-F03-03: Công bố lịch ca có phiên bản & Sàn đổi ca trực (Shift Swap Center)
+#### TC-F03-04: Công bố lịch ca có phiên bản & Lưu audit trail
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý).
 * **Các bước:**
-  1. Bấm **"Công bố lịch làm việc"** -> Toàn bộ ca chuyển trạng thái sang *Đã công bố*, ghi nhận Revision 1 và lưu audit log.
-  2. Bấm **"Đổi ca & Sàn ca trống"** -> Gửi yêu cầu đổi ca với đồng nghiệp kèm lý do -> Quản lý có thể Duyệt hoặc Từ chối kèm kiểm tra điều kiện ArbZG tự động.
+  1. Bấm nút **"Công bố lịch làm việc"**.
+  2. Nhập lý do phát hành: *"Công bố lịch tuần chính thức"*.
+  3. Bấm **"Xác nhận công bố"**.
+* **Kết quả mong đợi:**
+  * Toàn bộ ca chuyển sang trạng thái *Đã công bố*, ghi nhận Revision 1 và lưu audit log.
+
+#### TC-F03-05: Nhân viên gửi yêu cầu đổi ca trực trên Sàn đổi ca (Shift Swap Center)
+* **Tài khoản kiểm thử:** `anna.mueller@restaurant.example` (Nhân viên phục vụ).
+* **Lý do dùng tài khoản này:** Nhân viên có nhu cầu đổi ca khi có việc bận đột xuất.
+* **Các bước:**
+  1. Đăng nhập tài khoản `anna.mueller`.
+  2. Vào menu **"Lịch ca làm việc"**, bấm nút **"Đổi ca & Sàn ca trống"**.
+  3. Chọn ca muốn đổi của mình, chọn đồng nghiệp nhận đổi: `Markus Weber`.
+  4. Nhập lý do: *"Có việc bận gia đình cần đổi ca"*.
+  5. Bấm nút màu xanh: **"Gửi yêu cầu đổi ca"**.
+* **Kết quả mong đợi:**
+  * Yêu cầu được gửi lên hệ thống và hiển thị ở trạng thái `PENDING`.
+
+#### TC-F03-06: Quản lý phê duyệt yêu cầu đổi ca trực
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý nhà hàng).
+* **Lý do dùng tài khoản này:** Quản lý có trách nhiệm thẩm định việc đổi ca để đảm bảo không vi phạm luật ArbZG và đủ nhân sự vận hành.
+* **Các bước:**
+  1. Đăng nhập lại tài khoản `tobias.hoffmann`.
+  2. Vào Sàn đổi ca, tab **"Yêu cầu chờ duyệt"**.
+  3. Bấm nút **"Duyệt"** trên yêu cầu của Anna Müller.
+* **Kết quả mong đợi:**
+  * Hệ thống tự động hoán đổi người nhận ca trên lịch tuần; trạng thái chuyển thành `APPROVED`.
 
 ---
 
-### PHÂN HỆ F04: CHẤM CÔNG TRỰC TIẾP & QUẢN LÝ GIỜ NGHỈ
+### PHÂN HỆ F04: CHẤM CÔNG TRỰC TIẾP & QUẢN LÝ NGHỈ GIỮA CA
 
-#### TC-F04-01: Bắt đầu ca làm việc (Check-in trực tiếp)
-* **Mục tiêu:** Kiểm tra nhân viên bắt đầu làm việc trực tiếp trong hệ thống, ghi nhận timestamp UTC chính xác và tạo bản ghi bất biến trong `attendance_events`.
-* **Tiền điều kiện:** Đăng nhập tài khoản nhân viên `anna.mueller` hoặc quản lý `tobias.hoffmann`.
+#### TC-F04-01: Bắt đầu ca làm việc (Check-in trực tiếp & Live Clock)
+* **Tài khoản kiểm thử:** `anna.mueller@restaurant.example` (Nhân viên phục vụ).
+* **Lý do dùng tài khoản này:** Chấm công trực tiếp là nghĩa vụ hàng ngày của nhân viên tại nơi làm việc.
 * **Các bước:**
-  1. Vào menu **"Chấm công cá nhân"** (`#attendance`).
-  2. Quan sát thẻ đồng hồ thời gian thực (Live Time Clock): Trạng thái hiển thị *"Đang ngoài ca"*.
-  3. Bấm nút màu xanh ngọc lớn: **"Vào ca làm việc"**.
+  1. Đăng nhập tài khoản `anna.mueller`.
+  2. Vào menu **"Chấm công cá nhân"** (`#attendance`).
+  3. Quan sát Thẻ đồng hồ thời gian thực (Live Time Clock): Trạng thái hiển thị *"Đang ngoài ca"*.
+  4. Bấm nút lớn màu xanh ngọc: **"Vào ca làm việc"**.
 * **Kết quả mong đợi:**
-  * Hệ thống ghi nhận giờ vào ca chính xác theo giờ hiện tại.
-  * Trạng thái đồng hồ chuyển sang: *"Đang trong ca làm việc"*, nhấp nháy đèn xanh theo dõi.
-  * Bảng chấm công bên dưới sinh ra 1 dòng ca mới với trạng thái `OPEN`.
-  * Cơ sở dữ liệu: Bản ghi được lưu bất biến vào bảng `attendance_events` với `event_type = 'CHECK_IN'`.
+  * Hệ thống ghi nhận giờ vào ca chính xác theo UTC.
+  * Trạng thái đồng hồ chuyển sang: *"Đang trong ca làm việc"* (chấm xanh nhấp nháy).
+  * Phía dưới xuất hiện 1 dòng bảng chấm công mới có trạng thái `OPEN`.
+  * Cơ sở dữ liệu: Ghi 1 bản ghi bất biến vào bảng `attendance_events` (`event_type = 'CHECK_IN'`).
 
 #### TC-F04-02: Ghi nhận giờ nghỉ giữa ca thực tế (Start / End Break)
-* **Mục tiêu:** Ghi nhận thời điểm bắt đầu và kết thúc giờ nghỉ thực tế, gắn với ca làm việc hiện hành.
+* **Tài khoản kiểm thử:** `anna.mueller@restaurant.example` (Nhân viên phục vụ).
 * **Các bước:**
   1. Khi đang trong ca làm việc, bấm nút **"Bắt đầu nghỉ giải lao"**.
-  2. Quan sát trạng thái đồng hồ: Chuyển sang *"Đang nghỉ giải lao"* (màu vàng hổ phách).
-  3. Chờ 1-2 phút (hoặc giả lập qua kiểm thử), sau đó bấm nút **"Kết thúc nghỉ giải lao"**.
+  2. Quan sát đồng hồ: Chuyển sang trạng thái *"Đang nghỉ giải lao"* (màu vàng hổ phách).
+  3. Sau một khoảng thời gian, bấm nút **"Kết thúc nghỉ giải lao"**.
 * **Kết quả mong đợi:**
-  * Hệ thống tính toán chính xác số phút nghỉ thực tế (không tự giả định thời gian nghỉ).
-  * Bản ghi giờ nghỉ được lưu vào bảng `break_records` với `start_time_utc`, `end_time_utc`, `duration_minutes`.
+  * Hệ thống tính số phút nghỉ thực tế và ghi nhận vào bảng `break_records`.
   * Trạng thái đồng hồ chuyển lại thành *"Đang trong ca làm việc"*.
 
-#### TC-F04-03: Kiểm tra tự động vi phạm giờ nghỉ theo ArbZG §4
-* **Mục tiêu:** Phát hiện ca làm việc trên 6 giờ hoặc trên 9 giờ nhưng không đạt thời gian nghỉ luật định.
+#### TC-F04-03: Kiểm tra cảnh báo vi phạm thời gian nghỉ theo ArbZG §4
+* **Tài khoản kiểm thử:** `markus.weber@restaurant.example` (Đầu bếp).
 * **Kịch bản kiểm thử:**
-  * Nhân viên làm việc ca kéo dài 7 tiếng nhưng tổng thời gian nghỉ thực tế chỉ có 15 phút (< 30 phút theo luật).
+  * Ca làm việc kéo dài trên 6 tiếng nhưng tổng thời gian nghỉ giữa ca chỉ có 10 phút (< 30 phút theo luật).
 * **Kết quả mong đợi:**
-  * Cột thời gian nghỉ trên Timesheet hiển thị icon cảnh báo tam giác vàng.
-  * Rê chuột hoặc xem chi tiết hiển thị cảnh báo: *"Chưa đủ thời gian nghỉ theo luật CHLB Đức (ArbZG §4): Ca trên 6h cần tối thiểu 30 phút nghỉ"*.
-  * Tự động ghi nhận một bất thường vào bảng `attendance_exceptions` với mã `INSUFFICIENT_BREAK`.
+  * Tại cột thời gian nghỉ trên Timesheet hiển thị icon tam giác vàng cảnh báo.
+  * Rê chuột hiển thị: *"Chưa đủ thời gian nghỉ theo ArbZG §4 (Ca >6h cần tối thiểu 30m nghỉ)"*.
+  * Tự động sinh bản ghi vào bảng `attendance_exceptions` (`INSUFFICIENT_BREAK`).
 
 #### TC-F04-04: Kết thúc ca làm việc (Check-out)
+* **Tài khoản kiểm thử:** `anna.mueller@restaurant.example` (Nhân viên phục vụ).
 * **Các bước:**
   1. Bấm nút màu đỏ: **"Kết thúc ca làm"**.
 * **Kết quả mong đợi:**
-  * Trạng thái ca chuyển sang `PENDING_APPROVAL` (Chờ đối soát & duyệt).
+  * Đồng hồ trở về trạng thái *"Đang ngoài ca"*.
+  * Ca làm việc chuyển trạng thái thành `PENDING_APPROVAL` (Chờ đối soát).
   * Ghi nhận sự kiện `CHECK_OUT` vào bảng `attendance_events`.
-  * Cột tổng giờ làm việc (`workedMinutes`) được tính tự động: `(Giờ ra - Giờ vào) - Giờ nghỉ`.
+  * Tự động tính toán tổng số phút làm việc thực tế (`workedMinutes`).
 
-#### TC-F04-05: Bổ sung giờ công thủ công có kiểm soát (Manual Entry - F04.05)
-* **Mục tiêu:** Dành cho Quản lý / HR bổ sung giờ làm việc khi có sự cố kỹ thuật hoặc mất mạng, đảm bảo có lý do và audit trail.
+#### TC-F04-05: Tra cứu lịch sử Timesheet cá nhân
+* **Tài khoản kiểm thử:** `anna.mueller@restaurant.example` (Nhân viên phục vụ).
 * **Các bước:**
-  1. Tại màn hình Chấm công cá nhân, bấm nút **"+ Bổ sung giờ công thủ công"**.
-  2. Chọn chi nhánh làm việc (ví dụ: *Stuttgart Mitte*).
-  3. Chọn nhân viên (ví dụ: *Markus Weber*).
-  4. Chọn ngày làm việc, nhập giờ vào `09:00`, giờ ra `17:00`, giờ nghỉ `30m`.
-  5. Bắt buộc nhập lý do: *"Hệ thống mạng chi nhánh mất kết nối, nhân viên có mặt đầy đủ theo xác nhận của bếp trưởng"*.
+  1. Xem bảng danh sách chấm công cá nhân tại `#attendance`.
+* **Kết quả mong đợi:**
+  * Hiển thị đầy đủ ngày làm việc, giờ vào, giờ ra, số phút nghỉ, tổng thời gian làm việc và trạng thái duyệt.
+  * Có nút **"Xin sửa giờ"** trên từng dòng ca.
+
+#### TC-F04-06: Quản lý bổ sung giờ công thủ công có kiểm soát (F04.05)
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý nhà hàng).
+* **Lý do dùng tài khoản này:** Chỉ người có thẩm quyền Quản lý/HR mới được bổ sung giờ công thủ công khi có sự cố kỹ thuật hoặc mất mạng.
+* **Các bước:**
+  1. Đăng nhập tài khoản `tobias.hoffmann`.
+  2. Vào menu **"Chấm công cá nhân"**, bấm nút **"+ Bổ sung giờ công thủ công"**.
+  3. Chọn chi nhánh `Demo Stuttgart Mitte`, chọn nhân viên `Markus Weber`.
+  4. Nhập ngày làm, giờ vào `09:00`, giờ ra `17:00`, giờ nghỉ `30m`.
+  5. Bắt buộc nhập lý do: *"Mất kết nối mạng tại chi nhánh, có xác nhận từ bếp trưởng"*.
   6. Bấm **"Lưu bản ghi giờ công"**.
 * **Kết quả mong đợi:**
-  * Bản ghi giờ công được tạo thành công với trạng thái `PENDING_APPROVAL`.
-  * Ghi nhận audit trail rõ ràng về người tạo, thời điểm và lý do bổ sung.
+  * Tạo thành công ca làm việc với trạng thái `PENDING_APPROVAL`.
+  * Lưu vết kiểm toán người bổ sung, thời điểm và lý do.
 
 ---
 
-### PHÂN HỆ F05: ĐỐI SOÁT, SỬA & PHÊ DUYỆT GIỜ CÔNG
+### PHÂN HỆ F05: ĐỐI SOÁT, SỬA GIỜ & PHÊ DUYỆT
 
-#### TC-F05-01: Bảng đối soát 3 trục theo ca (Soll-Ist-Vergleich)
-* **Mục tiêu:** Quản lý đối soát giữa kế hoạch xếp ca và thực tế chấm công của từng nhân viên.
+#### TC-F05-01: Quản lý theo dõi Bảng đối soát 3 trục theo ca
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý nhà hàng).
+* **Lý do dùng tài khoản này:** Quản lý nhà hàng chịu trách nhiệm đối soát ca làm việc hàng ngày của chi nhánh mình.
 * **Các bước:**
-  1. Đăng nhập tài khoản Quản lý `tobias.hoffmann`.
+  1. Đăng nhập tài khoản `tobias.hoffmann`.
   2. Vào menu **"Đối soát & Phê duyệt"** (`#reconciliation`).
-  3. Chọn chi nhánh *Demo Stuttgart Mitte*.
-  4. Quan sát 4 thẻ KPI trên cùng: *Tổng số ca đối soát*, *Tổng giờ làm việc*, *Bất thường cần xử lý*, *Đơn xin sửa giờ*.
-  5. Xem bảng đối soát ca làm việc:
-     * Cột 1: Thông tin nhân viên & Vị trí.
-     * Cột 2: Lịch ca dự kiến (Soll) kèm giờ nghỉ dự kiến.
-     * Cột 3: Chấm công thực tế (Ist) kèm số phút nghỉ thực tế.
-     * Cột 4: Chênh lệch (Delta phút) & Số phút đi muộn (nếu có).
-     * Cột 5: Tuân thủ Luật Đức ArbZG (Chuẩn ArbZG hoặc cảnh báo chi tiết).
-     * Cột 6: Trạng thái (Chờ duyệt, Đã duyệt, Đã khóa kỳ).
+  3. Chọn chi nhánh `Demo Stuttgart Mitte`.
 * **Kết quả mong đợi:**
-  * Dữ liệu hiển thị trực quan 3 trục rõ ràng; chênh lệch thời gian được tính chính xác từng phút, không tự động cắt xén giờ làm thực tế của nhân viên.
+  * Bảng đối soát 3 trục hiển thị rõ ràng:
+    - **Trục 1:** Lịch ca kế hoạch (Soll) kèm giờ nghỉ dự kiến.
+    - **Trục 2:** Giờ thực tế chấm công (Ist) kèm phút nghỉ thực tế.
+    - **Trục 3:** Chênh lệch (Delta phút) và số phút đi muộn (nếu có).
+  * Cột tuân thủ luật Đức: Hiển thị nhãn xanh *"Chuẩn ArbZG"* hoặc nhãn cảnh báo vi phạm.
+  * Không tự động cắt xén giờ làm thực tế của nhân viên.
 
-#### TC-F05-02: Nhân viên gửi đơn xin điều chỉnh giờ công (Change Request)
-* **Mục tiêu:** Nhân viên gửi yêu cầu sửa giờ kèm lý do và xem trước chênh lệch thời gian.
+#### TC-F05-02: Nhân viên gửi đơn xin sửa giờ thông thường (Chênh lệch ≤ 60 phút)
+* **Tài khoản kiểm thử:** `anna.mueller@restaurant.example` (Nhân viên phục vụ).
 * **Các bước:**
-  1. Tại màn hình Chấm công của nhân viên, tìm một ca làm việc và bấm nút **"Xin sửa giờ"**.
-  2. Nhập giờ vào đề xuất, giờ ra đề xuất, số phút nghỉ.
-  3. Nhập lý do điều chỉnh: *"Quên quẹt thẻ khi vào ca, có xác nhận từ trưởng ca bàn giao"*.
-  4. Quan sát ô cảnh báo leo thang:
-     * Nếu thời gian chênh lệch `<= 60 phút`: Không có cảnh báo leo thang.
-     * Nếu thời gian chênh lệch `> 60 phút`: Xuất hiện khung viền cam cảnh báo quy tắc **US-026**: *"Yêu cầu này có chênh lệch thời gian > 60 phút sẽ tự động được chuyển lên cấp HR xác minh bổ sung."*
-  5. Bấm nút **"Gửi yêu cầu điều chỉnh"**.
+  1. Đăng nhập tài khoản `anna.mueller`, vào `#attendance`.
+  2. Bấm nút **"Xin sửa giờ"** trên ca làm việc của mình.
+  3. Đề xuất điều chỉnh giờ vào sớm hơn 20 phút (Chênh lệch 20m <= 60m).
+  4. Nhập lý do: *"Quên quẹt thẻ khi vào ca 20 phút, có xác nhận của trưởng ca"*.
+  5. Bấm **"Gửi yêu cầu điều chỉnh"**.
 * **Kết quả mong đợi:**
-  * Yêu cầu được gửi lên hệ thống và chuyển trạng thái phù hợp (`PENDING` hoặc `HR_ESCALATED`).
+  * Yêu cầu được gửi với trạng thái thông thường `PENDING` (không bị leo thang HR).
 
-#### TC-F05-03: Kiểm thử Quy tắc Leo thang HR (US-026 Escalation Rule)
-* **Kịch bản kiểm thử:**
-  * Nhân viên gửi yêu cầu sửa giờ ca làm việc từ 08:00 đến 16:00 (chênh lệch so với giờ thực tế 484 phút > 60 phút).
-* **Kết quả mong đợi:**
-  * Đơn yêu cầu được hệ thống tự động gán trạng thái **`HR_ESCALATED`** (`requires_hr_escalation = true`).
-  * Trên tab *Đơn xin sửa giờ* của Quản lý nhà hàng, đơn này hiển thị nhãn màu cam nổi bật: **`CẦN HR XÁC MINH (>60m)`**.
-  * Quản lý nhà hàng (Restaurant Manager) khi bấm duyệt đơn này sẽ bị hệ thống chặn với thông báo: *"Yêu cầu này có chênh lệch thời gian > 60 phút, bắt buộc phải do HR hoặc Quản trị viên phê duyệt!"*.
-
-#### TC-F05-04: Kiểm thử Quy tắc Phân tách nhiệm vụ (Segregation of Duties - SoD)
-* **Mục tiêu:** Đảm bảo Quản lý nhà hàng **không thể tự phê duyệt** bảng chấm công hoặc đơn xin điều chỉnh giờ của chính mình.
+#### TC-F05-03: Quản lý phê duyệt đơn sửa giờ thông thường của nhân viên
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý nhà hàng).
 * **Các bước:**
-  1. Đăng nhập bằng tài khoản Quản lý `tobias.hoffmann` (Employee ID = 5).
-  2. Vào menu **"Đối soát & Phê duyệt"** (`#reconciliation`).
-  3. Tìm ca làm việc hoặc đơn xin sửa giờ thuộc về chính nhân viên **Tobias Hoffmann**.
-  4. Quan sát nút **"Duyệt"**:
-     * Nút "Duyệt" bị vô hiệu hóa (disabled), hiển thị màu xám mờ.
-     * Rê chuột lên nút hiển thị tooltip: *"Vi phạm SoD: Không thể tự duyệt ca của chính mình"*.
-  5. Thử gửi lệnh duyệt trực tiếp qua API: `POST /api/reconciliation/timesheets/{id}/approve`.
-* **Kết quả mong đợi:**
-  * Hệ thống chặn hoàn toàn với mã lỗi **`HTTP 403 Forbidden`** và thông báo lỗi: *"Vi phạm quy tắc SoD (Segregation of Duties): Bạn không được phép tự phê duyệt bảng chấm công của chính mình!"*.
-
-#### TC-F05-05: Cấp HR / Quản trị viên duyệt đơn & Lưu vết kiểm toán (Audit Trail)
-* **Các bước:**
-  1. Đăng nhập bằng tài khoản `admin@restaurant.example` (hoặc tài khoản HR).
+  1. Đăng nhập tài khoản `tobias.hoffmann`.
   2. Vào menu **"Đối soát & Phê duyệt"**, chuyển sang tab **"Đơn xin sửa giờ"**.
-  3. Bấm **"Xử lý"** trên đơn của Tobias Hoffmann.
-  4. Nhập ghi chú xử lý: *"HR đã đối soát qua camera giám sát và xác nhận giờ vào thực tế."*.
-  5. Bấm nút màu xanh: **"Phê duyệt"**.
+  3. Bấm **"Xử lý"** trên đơn của Anna Müller.
+  4. Nhập ghi chú và bấm **"Phê duyệt"**.
 * **Kết quả mong đợi:**
-  * Yêu cầu được duyệt thành công, trạng thái chuyển thành `APPROVED`.
-  * Bảng chấm công được cập nhật theo giờ mới đã duyệt.
-  * Hệ thống tự động ghi một bản ghi lịch sử vào bảng **`attendance_adjustments`** lưu vết: `timesheet_id`, `old_start_utc`, `new_start_utc`, `old_break_minutes`, `new_break_minutes`, `adjusted_by_user_id`, thời điểm và lý do.
-  * Ca làm việc được tự động bật cờ **`recalculation_required = true`** để sẵn sàng đồng bộ tính lương/phụ cấp.
+  * Đơn được duyệt thành công, chuyển sang `APPROVED`.
+  * Ca làm việc của Anna được cập nhật theo giờ mới, lưu vết audit vào `attendance_adjustments`.
 
-#### TC-F05-06: Chốt và Khóa kỳ chấm công (Period Locking - US-028)
-* **Mục tiêu:** Đảm bảo dữ liệu trong kỳ đã khóa chỉ có thể xem, không thể sửa đổi hoặc gửi yêu cầu điều chỉnh trực tiếp.
+#### TC-F05-04: Nhân viên gửi đơn xin sửa giờ có chênh lệch lớn (> 60 phút)
+* **Tài khoản kiểm thử:** `anna.mueller@restaurant.example` (Nhân viên phục vụ).
 * **Các bước:**
-  1. Đăng nhập tài khoản Quản trị / HR.
-  2. Vào menu **"Đối soát & Phê duyệt"**, chuyển sang tab **"Khóa kỳ chấm công"**.
+  1. Đăng nhập tài khoản `anna.mueller`, vào `#attendance`.
+  2. Bấm **"Xin sửa giờ"** trên ca làm việc khác.
+  3. Đề xuất điều chỉnh tăng thời gian làm việc thêm 120 phút (> 60m).
+  4. Quan sát form: Khung viền cam cảnh báo quy tắc **US-026** xuất hiện: *"Chênh lệch thời gian 120 phút (> 60 phút). Yêu cầu này sẽ tự động chuyển lên cấp HR xác minh bổ sung."*
+  5. Nhập lý do: *"Làm việc ca tăng cường hỗ trợ sự kiện tiệc tối"* và bấm Gửi.
+* **Kết quả mong đợi:**
+  * Yêu cầu được gửi thành công và tự động gắn trạng thái **`HR_ESCALATED`** (`requires_hr_escalation = true`).
+
+#### TC-F05-05: Kiểm tra Quy tắc US-026 - Quản lý bị chặn duyệt đơn leo thang HR
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý nhà hàng).
+* **Mục tiêu:** Đảm bảo Quản lý nhà hàng không được tự ý duyệt các ca có thay đổi lớn trên 60 phút.
+* **Các bước:**
+  1. Đăng nhập tài khoản `tobias.hoffmann`.
+  2. Vào `#reconciliation`, tab **"Đơn xin sửa giờ"**.
+  3. Tìm đơn của Anna Müller có nhãn cam **`CẦN HR XÁC MINH (>60m)`**.
+  4. Thử bấm nút phê duyệt đơn này.
+* **Kết quả mong đợi:**
+  * Hệ thống chặn phê duyệt và hiển thị thông báo: *"Yêu cầu này có chênh lệch thời gian > 60 phút, bắt buộc phải do HR hoặc Quản trị viên phê duyệt!"*.
+
+#### TC-F05-06: Cấp HR / Quản trị viên duyệt đơn leo thang & Lưu Audit Trail
+* **Tài khoản kiểm thử:** `admin@restaurant.example` (Quản trị viên / HR).
+* **Lý do dùng tài khoản này:** Cấp HR/Quản trị viên có thẩm quyền cao nhất để thẩm định các điều chỉnh giờ công lớn.
+* **Các bước:**
+  1. Đăng nhập tài khoản `admin@restaurant.example`.
+  2. Vào menu `#reconciliation`, tab **"Đơn xin sửa giờ"**.
+  3. Bấm **"Xử lý"** trên đơn bị leo thang của Anna Müller.
+  4. Nhập ghi chú: *"HR đã đối soát biên bản sự kiện và phê duyệt điều chỉnh."*.
+  5. Bấm **"Phê duyệt"**.
+* **Kết quả mong đợi:**
+  * Đơn được duyệt thành công, chuyển sang `APPROVED`.
+  * Bảng `attendance_adjustments` lưu vết: `old_start_utc`, `new_start_utc`, `adjusted_by_user_id`, thời điểm và ghi chú.
+  * Ca làm việc tự động bật cờ **`recalculation_required = true`** sẵn sàng tính lương.
+
+#### TC-F05-07: Kiểm tra Quy tắc SoD - Quản lý bị chặn tự phê duyệt bảng công của chính mình
+* **Tài khoản kiểm thử:** `tobias.hoffmann@restaurant.example` (Quản lý nhà hàng - Employee ID: 5).
+* **Mục tiêu:** Kiểm tra quy tắc Phân tách nhiệm vụ (Segregation of Duties): Quản lý không được tự duyệt cho bản thân.
+* **Các bước:**
+  1. Đăng nhập tài khoản `tobias.hoffmann`.
+  2. Vào menu **"Đối soát & Phê duyệt"** (`#reconciliation`).
+  3. Tìm ca làm việc của chính nhân viên **Tobias Hoffmann**.
+  4. Quan sát nút "Duyệt":
+     * Nút "Duyệt" bị vô hiệu hóa, hiển thị màu xám.
+     * Rê chuột hiển thị tooltip: *"Vi phạm SoD: Không thể tự duyệt ca của chính mình"*.
+  5. Thử gọi API duyệt trực tiếp: `POST /api/reconciliation/timesheets/{id}/approve`.
+* **Kết quả mong đợi:**
+  * Hệ thống chặn hoàn toàn với mã lỗi **`HTTP 403 Forbidden`**: *"Vi phạm quy tắc SoD (Segregation of Duties): Bạn không được phép tự phê duyệt bảng chấm công của chính mình!"*.
+
+#### TC-F05-08: Quản trị viên / HR duyệt bảng công cho Quản lý giải quyết SoD
+* **Tài khoản kiểm thử:** `admin@restaurant.example` (Quản trị viên / HR).
+* **Lý do dùng tài khoản này:** Là bên thứ ba có thẩm quyền độc lập duyệt ca cho cấp Quản lý theo đúng quy tắc SoD.
+* **Các bước:**
+  1. Đăng nhập tài khoản `admin@restaurant.example`.
+  2. Vào `#reconciliation`, tìm ca làm việc của Tobias Hoffmann.
+  3. Bấm nút **"Duyệt"**.
+* **Kết quả mong đợi:**
+  * Ca làm việc của Tobias Hoffmann được duyệt thành công, chuyển sang `APPROVED`.
+
+#### TC-F05-09: Chốt và Khóa kỳ chấm công chi nhánh (US-028)
+* **Tài khoản kiểm thử:** `admin@restaurant.example` (Quản trị viên / HR).
+* **Lý do dùng tài khoản này:** Khóa kỳ công là nghiệp vụ cấp cao của phòng Nhân sự / Kế toán trước khi chạy lương.
+* **Các bước:**
+  1. Đăng nhập tài khoản `admin@restaurant.example`.
+  2. Vào `#reconciliation`, chuyển sang tab **"Khóa kỳ chấm công"**.
   3. Chọn ngày kết thúc kỳ chốt (ví dụ: `2026-11-30`).
   4. Bấm **"Xác nhận khóa kỳ công"**.
 * **Kết quả mong đợi:**
-  * Toàn bộ các ca làm việc của chi nhánh trước và trong ngày được chọn chuyển sang trạng thái `LOCKED` (`is_locked = true`).
-  * Trên giao diện Timesheet của nhân viên, các ca này hiển thị huy hiệu xám **`Đã khóa kỳ`**; nút *"Xin sửa giờ"* bị vô hiệu hóa.
-  * Mọi hành động gửi điều chỉnh hoặc sửa giờ trực tiếp vào các ca đã khóa đều bị hệ thống chặn với thông báo: *"Kỳ công này đã được chốt và khóa, không thể sửa đổi trực tiếp!"*.
+  * Toàn bộ ca làm việc của chi nhánh trước và trong ngày chọn chuyển sang trạng thái `LOCKED` (`is_locked = true`).
+
+#### TC-F05-10: Kiểm tra tính bất biến sau khi khóa kỳ
+* **Tài khoản kiểm thử:** `anna.mueller@restaurant.example` (Nhân viên) hoặc `tobias.hoffmann@restaurant.example` (Quản lý).
+* **Các bước:**
+  1. Đăng nhập tài khoản `anna.mueller`, vào `#attendance`.
+  2. Tìm ca làm việc trong kỳ đã bị khóa.
+* **Kết quả mong đợi:**
+  * Ca làm việc hiển thị nhãn xám **`Đã khóa kỳ`**; nút *"Xin sửa giờ"* bị khóa (disabled).
+  * Mọi nỗ lực gửi điều chỉnh trực tiếp vào kỳ đã khóa đều bị hệ thống từ chối.
 
 ---
 
-## 5. BẢNG TỔNG HỢP RÀNG BUỘC PHÁP LÝ & PHÂN TÁCH NHIỆM VỤ (COMPLIANCE CHECKLIST)
+## 5. BẢNG TỔNG HỢP RÀNG BUỘC PHÁP LÝ & PHÂN TÁCH NHIỆM VỤ
 
-| STT | Quy định / Luật định | Mã điều luật | Giới hạn & Hành vi của hệ thống | Trạng thái xác minh |
-| :---: | :--- | :--- | :--- | :---: |
-| 1 | Mức lương tối thiểu Đức | **MiLoG** | Bắt buộc mức lương giờ ≥ **12,41 €/h**; chặn lưu nếu thấp hơn | **PASS** |
-| 2 | Giới hạn Minijob | **Minijob-Gesetz** | Trần thu nhập tối đa **538,00 €/tháng**; cảnh báo phân loại lại nếu vượt | **PASS** |
-| 3 | Thời gian làm việc tối đa | **ArbZG §3** | Tối đa **10 giờ/ngày**; cảnh báo đỏ khi xếp ca hoặc chấm công vượt mức | **PASS** |
-| 4 | Nghỉ giải lao bắt buộc | **ArbZG §4** | Ca >6h: tối thiểu **30 phút**; Ca >9h: tối thiểu **45 phút**; tự động phát hiện vi phạm | **PASS** |
-| 5 | Khoảng cách nghỉ giữa ca | **ArbZG §5** | Bắt buộc tối thiểu **11 giờ liên tục** nghỉ giữa 2 ca làm việc; cảnh báo vi phạm | **PASS** |
-| 6 | Làm việc ngày Chủ nhật | **ArbZG §11** | Cảnh báo làm việc Chủ nhật và nghĩa vụ bố trí ngày nghỉ bù trong vòng 2 tuần | **PASS** |
-| 7 | Bảo vệ thai sản | **MuSchG** | Cấm xếp ca đêm từ **20:00 - 06:00**, cấm làm thêm giờ đối với phụ nữ mang thai | **PASS** |
-| 8 | Phân tách nhiệm vụ | **SoD Rule** | Quản lý **không được tự phê duyệt** bảng công hoặc đơn xin sửa giờ của bản thân | **PASS** |
-| 9 | Leo thang phê duyệt | **US-026 Rule** | Chênh lệch điều chỉnh **> 60 phút** tự động chuyển cấp HR phê duyệt bổ sung | **PASS** |
-| 10 | Bất biến & Khóa kỳ | **US-028 Rule** | Giữ bản ghi sự kiện gốc; sau khi khóa kỳ, không được sửa đổi trực tiếp | **PASS** |
+| STT | Quy định / Luật định | Điều luật CHLB Đức | Hành vi kiểm soát của hệ thống | Tài khoản kiểm thử chính | Trạng thái |
+| :---: | :--- | :--- | :--- | :--- | :---: |
+| 1 | Lương tối thiểu Đức | **MiLoG** | Bắt buộc lương giờ ≥ **12,41 €/h**; chặn lưu nếu thấp hơn | `tobias.hoffmann` | **PASS** |
+| 2 | Giới hạn Minijob | **Minijob-Gesetz** | Trần thu nhập tối đa **538,00 €/tháng**; cảnh báo nếu vượt | `tobias.hoffmann` | **PASS** |
+| 3 | Giờ làm tối đa trong ngày | **ArbZG §3** | Tối đa **10 giờ/ngày**; cảnh báo đỏ khi xếp ca hoặc chấm công quá giờ | `tobias.hoffmann`, `anna.mueller` | **PASS** |
+| 4 | Nghỉ giải lao bắt buộc | **ArbZG §4** | Ca >6h: nghỉ tối thiểu **30m**; Ca >9h: nghỉ tối thiểu **45m** | `markus.weber`, `anna.mueller` | **PASS** |
+| 5 | Khoảng cách nghỉ giữa ca | **ArbZG §5** | Bắt buộc nghỉ tối thiểu **11 giờ liên tục** giữa 2 ca làm việc | `tobias.hoffmann` | **PASS** |
+| 6 | Làm việc ngày Chủ nhật | **ArbZG §11** | Cảnh báo làm việc Chủ nhật và nhắc nhở bố trí ngày nghỉ bù | `tobias.hoffmann` | **PASS** |
+| 7 | Bảo vệ thai sản | **MuSchG** | Cấm xếp ca đêm từ **20:00 - 06:00**, cấm làm thêm giờ | `sophie.fischer` | **PASS** |
+| 8 | Phân tách nhiệm vụ | **SoD Rule** | Quản lý **không được tự duyệt** bảng công hoặc đơn sửa giờ của mình | `tobias.hoffmann` bị chặn, `admin` duyệt | **PASS** |
+| 9 | Leo thang phê duyệt | **US-026 Rule** | Chênh lệch điều chỉnh **> 60 phút** tự động chuyển cấp HR phê duyệt | `anna.mueller` tạo, `admin` duyệt | **PASS** |
+| 10 | Bất biến & Khóa kỳ | **US-028 Rule** | Giữ bản ghi sự kiện gốc; sau khi khóa kỳ, không được sửa đổi trực tiếp | `admin` khóa, toàn bộ NV tuân thủ | **PASS** |
 
 ---
 
-## 6. MẪU BIÊN BẢN NGHIỆM THU KIỂM THỬ HỆ THỐNG (SIGN-OFF TEMPLATE)
+## 6. MẪU BIÊN BẢN NGHIỆM THU KIỂM THỬ HỆ THỐNG
 
 ```text
 ========================================================================================
                       BIÊN BẢN NGHIỆM THU KIỂM THỬ HỆ THỐNG ATELIER (DT06)
-             Dự án: Hệ thống Quản lý Nhân sự, Lịch ca & Chấm công Nhà hàng tại Đức
+             Dự án: Quản lý Nhân sự, Lịch ca, Chấm công & Đối soát Nhà hàng tại Đức
 ========================================================================================
 
 Thời gian nghiệm thu: Ngày ..... tháng ..... năm 2026
-Địa điểm nghiệm thu: ...................................................................
-Thành phần tham dự:
-  1. Đại diện Đội ngũ Phát triển: Nguyễn Bá Linh & Nguyễn Hữu Phương
-  2. Đại diện Đội ngũ Kiểm thử (QA/QC): .................................................
-  3. Đại diện Quản lý Dự án (Project Manager): ..........................................
+Địa điểm: ..............................................................................
+Thành phần tham gia nghiệm thu:
+  1. Đại diện Nhóm Phát triển: Nguyễn Bá Linh & Nguyễn Hữu Phương
+  2. Đại diện Nhóm Kiểm thử (QA/QC): ...................................................
+  3. Đại diện Quản lý Dự án (PM): ......................................................
 
-KẾT QUẢ NGHIỆM THU THEO PHÂN HỆ:
+KẾT QUẢ NGHIỆM THU THEO PHÂN HỆ VÀ TÀI KHOẢN PHÂN VAI:
 ----------------------------------------------------------------------------------------
-Phân hệ                            Mã kiểm thử       Kết quả       Ghi chú
+Mã phân hệ   Tên phân hệ                         Tài khoản chính          Kết quả
 ----------------------------------------------------------------------------------------
-F00: Bảo mật & Phân quyền RBAC      TC-F00-01..04     [ ] ĐẠT       [ ] CHƯA ĐẠT
-F00: Song ngữ Việt - Đức & DarkMode TC-F00-03         [ ] ĐẠT       [ ] CHƯA ĐẠT
-F01: Cơ cấu Chi nhánh & Pháp nhân   TC-F01-01         [ ] ĐẠT       [ ] CHƯA ĐẠT
-F02: Hồ sơ & Kiểm soát Lương MiLoG  TC-F02-01..02     [ ] ĐẠT       [ ] CHƯA ĐẠT
-F02: Bảo vệ MuSchG & Import CSV     TC-F02-03..04     [ ] ĐẠT       [ ] CHƯA ĐẠT
-F03: Xếp lịch ca & Luật ArbZG       TC-F03-01         [ ] ĐẠT       [ ] CHƯA ĐẠT
-F03: Modal xóa ca & Sàn đổi ca      TC-F03-02..03     [ ] ĐẠT       [ ] CHƯA ĐẠT
-F04: Check-in / Check-out & Giờ nghỉ TC-F04-01..04     [ ] ĐẠT       [ ] CHƯA ĐẠT
-F04: Bổ sung giờ công thủ công      TC-F04-05         [ ] ĐẠT       [ ] CHƯA ĐẠT
-F05: Bảng đối soát 3 trục theo ca   TC-F05-01         [ ] ĐẠT       [ ] CHƯA ĐẠT
-F05: Đơn xin sửa giờ & Leo thang HR TC-F05-02..03     [ ] ĐẠT       [ ] CHƯA ĐẠT
-F05: Chặn tự duyệt SoD              TC-F05-04         [ ] ĐẠT       [ ] CHƯA ĐẠT
-F05: Duyệt có Audit Trail & Khóa kỳ TC-F05-05..06     [ ] ĐẠT       [ ] CHƯA ĐẠT
+F00          Bảo mật, RBAC & Phân quyền SoD      admin, tobias.hoffmann   [ ] ĐẠT  [ ] CHƯA
+F00          Song ngữ Việt - Đức & Dark Mode     tobias.hoffmann          [ ] ĐẠT  [ ] CHƯA
+F01          Cơ cấu Chi nhánh & Pháp nhân        tobias.hoffmann, admin   [ ] ĐẠT  [ ] CHƯA
+F02          Hồ sơ Nhân sự & Lương MiLoG ≥12.41€ tobias.hoffmann          [ ] ĐẠT  [ ] CHƯA
+F02          Bảo vệ thai sản MuSchG              sophie.fischer           [ ] ĐẠT  [ ] CHƯA
+F02          Nhập liệu hàng loạt CSV Dry-Run     tobias.hoffmann          [ ] ĐẠT  [ ] CHƯA
+F03          Xếp lịch ca tuần & Luật ArbZG       tobias.hoffmann          [ ] ĐẠT  [ ] CHƯA
+F03          Modal xóa ca an toàn                tobias.hoffmann          [ ] ĐẠT  [ ] CHƯA
+F03          Sàn đổi ca trực (Shift Swap Center) anna.mueller, markus     [ ] ĐẠT  [ ] CHƯA
+F04          Chấm công Check-in / Check-out UTC  anna.mueller             [ ] ĐẠT  [ ] CHƯA
+F04          Nghỉ giữa ca thực tế (ArbZG §4)     anna.mueller, markus     [ ] ĐẠT  [ ] CHƯA
+F04          Bổ sung giờ công thủ công (F04.05)  tobias.hoffmann          [ ] ĐẠT  [ ] CHƯA
+F05          Bảng đối soát 3 trục theo ca        tobias.hoffmann          [ ] ĐẠT  [ ] CHƯA
+F05          Đơn xin sửa giờ thông thường ≤60m   anna.mueller, tobias     [ ] ĐẠT  [ ] CHƯA
+F05          Leo thang phê duyệt HR >60m (US-026)anna.mueller, admin      [ ] ĐẠT  [ ] CHƯA
+F05          Chặn Quản lý tự duyệt bản thân (SoD)tobias (chặn), admin     [ ] ĐẠT  [ ] CHƯA
+F05          Chốt & Khóa kỳ chấm công (US-028)   admin                    [ ] ĐẠT  [ ] CHƯA
 ----------------------------------------------------------------------------------------
 
-KẾT LUẬN CHUNG:
-[ ] HỆ THỐNG ĐẠT CHUẨN ĐẶC TẢ DT06, SẴN SÀNG ĐƯA VÀO VẬN HÀNH THỬ NGHIỆM (UAT).
-[ ] CẦN CHỈNH SỬA BỔ SUNG CÁC HẠNG MỤC: ................................................
+KẾT LUẬN NGHIỆM THU:
+[ ] HỆ THỐNG ĐẠT CHUẨN ĐẶC TẢ DT06, TÍNH NĂNG VẬN HÀNH ỔN ĐỊNH, ĐỦ ĐIỀU KIỆN BÀN GIAO.
+[ ] CẦN BỔ SUNG / ĐIỀU CHỈNH: .........................................................
 
-  ĐẠI DIỆN ĐỘI PHÁT TRIỂN             ĐẠI DIỆN KIỂM THỬ              QUẢN LÝ DỰ ÁN
-    (Ký & ghi rõ họ tên)             (Ký & ghi rõ họ tên)        (Ký & ghi rõ họ tên)
+    ĐẠI DIỆN ĐỘI PHÁT TRIỂN            ĐẠI DIỆN KIỂM THỬ              QUẢN LÝ DỰ ÁN
+     (Ký & ghi rõ họ tên)             (Ký & ghi rõ họ tên)        (Ký & ghi rõ họ tên)
 ```
