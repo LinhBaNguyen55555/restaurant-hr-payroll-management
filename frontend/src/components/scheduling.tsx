@@ -1,4 +1,7 @@
-import { useState, useEffect } from "react";
+import { useNotice } from "../lib/notice";
+import { useDraftChanged, useDraftClose } from "./draft-close";
+import { addCalendarDays, berlinDate, berlinInstant, berlinTime } from "../lib/work-time";
+import { useState, useEffect, useRef } from "react";
 import {
   Clock,
   AlertOctagon,
@@ -10,7 +13,6 @@ import {
   Send,
   ArrowLeftRight,
   Building,
-  X,
   XCircle,
   Trash2,
 } from "lucide-react";
@@ -27,50 +29,22 @@ import {
 import { useI18n } from "../lib/i18n";
 import { Modal } from "./experience";
 
-const POSITION_NAMES_VI: Record<string, string> = {
-  "Koch/Köchin": "Đầu bếp",
-  "Koch": "Đầu bếp",
-  "Chef": "Bếp trưởng",
-  "Cook": "Đầu bếp",
-  "Servicekraft": "Phục vụ bàn",
-  "Server": "Phục vụ bàn",
-  "Waiter": "Phục vụ bàn",
-  "Barista": "Pha chế",
-  "Barkraft": "Pha chế",
-  "Barista / Barkraft": "Pha chế",
-  "Spülkraft": "Rửa bát / Phụ bếp",
-  "Küchenhilfe": "Phụ bếp",
-  "Spülkraft / Küchenhilfe": "Phụ bếp",
-  "Restaurantleitung": "Quản lý nhà hàng",
-  "Restaurant Manager": "Quản lý nhà hàng",
-  "Schichtleitung": "Trưởng ca",
-  "Shift Leader": "Trưởng ca",
-  "HR-Referent/in": "Chuyên viên nhân sự",
-  "HR Specialist": "Chuyên viên nhân sự",
-};
+import { formatPosition } from "../lib/positions";
+import { ShiftAgenda } from "./role-home";
+import type { Workspace } from "../lib/api";
 
-export function formatPosition(name: string | undefined | null, lang: string): string {
-  if (!name) return lang === "vi" ? "Nhân viên" : "Mitarbeiter/in";
-  if (lang === "vi") {
-    return POSITION_NAMES_VI[name] || name;
-  }
-  return name;
-}
-
-export function SchedulingView({ branches }: { branches: Branch[] }) {
+export function SchedulingView({ branches, canManage, selfEmployeeId, selfPostings, selectedBranchId, setSelectedBranchId, initialDay }: {
+  branches: Branch[]; canManage: boolean; selfEmployeeId?: number | null;
+  selfPostings?: Workspace["selfPostings"]; selectedBranchId: string; setSelectedBranchId: (id: string) => void; initialDay?: string;
+}) {
   const { t, lang } = useI18n();
-  const [selectedBranchId, setSelectedBranchId] = useState<number>(() =>
-    branches.length > 0 ? Number(branches[0].id) : 1
-  );
+  const notify = useNotice();
 
   // Week calculation (Monday to Sunday)
-  const [currentMonday, setCurrentMonday] = useState<Date>(() => {
-    const d = new Date();
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    const mon = new Date(d.setDate(diff));
-    mon.setHours(0, 0, 0, 0);
-    return mon;
+  const [currentMonday, setCurrentMonday] = useState(() => {
+    const today = initialDay ?? berlinDate();
+    const weekday = new Date(today + "T12:00:00Z").getUTCDay();
+    return addCalendarDays(today, -((weekday + 6) % 7));
   });
 
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -84,67 +58,64 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
   const [showSwapModal, setShowSwapModal] = useState(false);
   const [shiftToDelete, setShiftToDelete] = useState<Shift | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [scheduleNotice, setScheduleNotice] = useState("");
   const [checkSummary, setCheckSummary] = useState<LaborLawCheckSummary | null>(null);
   const [checking, setChecking] = useState(false);
   const [changeReason, setChangeReason] = useState("");
   const [publishBusy, setPublishBusy] = useState(false);
 
   // 7 days of the week
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(currentMonday);
-    d.setDate(d.getDate() + i);
-    return d;
-  });
-
-  const periodStart = weekDays[0].toISOString();
-  const periodEnd = new Date(weekDays[6].getTime() + 86399000).toISOString();
+  const weekDays = Array.from({ length: 7 }, (_, i) => new Date(addCalendarDays(currentMonday, i) + "T12:00:00"));
+  const periodStart = berlinInstant(currentMonday, "00:00");
+  const periodEnd = berlinInstant(addCalendarDays(currentMonday, 7), "00:00");
+  const branchQuery = canManage && selectedBranchId ? "branchId=" + encodeURIComponent(selectedBranchId) + "&" : "";
+  const canManageBranch = canManage && Boolean(selectedBranchId);
+  const [loadError, setLoadError] = useState("");
+  const latestLoad = useRef(0);
 
   const loadData = async () => {
+    const request = ++latestLoad.current;
+    setLoadError("");
+    setShifts([]);
+    setTemplates([]);
+    setEmployees([]);
+    if (!canManageBranch && !selfEmployeeId) { setLoading(false); return; }
     setLoading(true);
     try {
       const [shiftData, tmplData, empData] = await Promise.all([
         api<Shift[]>(
-          `/scheduling/shifts?branchId=${selectedBranchId}&start=${encodeURIComponent(
+          `/scheduling/shifts?${branchQuery}start=${encodeURIComponent(
             periodStart
           )}&end=${encodeURIComponent(periodEnd)}`
         ),
-        api<ShiftTemplate[]>(`/scheduling/templates?branchId=${selectedBranchId}`),
-        api<EmployeeDto[]>(`/workforce/employees?branchId=${selectedBranchId}&status=ACTIVE`),
+        canManageBranch ? api<ShiftTemplate[]>(`/scheduling/templates?${branchQuery}`) : Promise.resolve([]),
+        canManageBranch ? api<EmployeeDto[]>(`/workforce/employees?${branchQuery}status=ACTIVE`) : Promise.resolve([]),
       ]);
+      if (request !== latestLoad.current) return;
       setShifts(shiftData);
       setTemplates(tmplData);
       setEmployees(empData);
     } catch (e) {
-      console.error(e);
+      if (request === latestLoad.current) setLoadError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (request === latestLoad.current) setLoading(false);
     }
   };
 
   useEffect(() => {
+    setScheduleNotice("");
     loadData();
-  }, [selectedBranchId, currentMonday]);
+    return () => { latestLoad.current++; };
+  }, [selectedBranchId, currentMonday, selfEmployeeId, canManageBranch]);
 
   // Navigate Weeks
-  const prevWeek = () => {
-    const d = new Date(currentMonday);
-    d.setDate(d.getDate() - 7);
-    setCurrentMonday(d);
-  };
-
-  const nextWeek = () => {
-    const d = new Date(currentMonday);
-    d.setDate(d.getDate() + 7);
-    setCurrentMonday(d);
-  };
-
+  const prevWeek = () => setCurrentMonday(addCalendarDays(currentMonday, -7));
+  const nextWeek = () => setCurrentMonday(addCalendarDays(currentMonday, 7));
   const gotoToday = () => {
-    const d = new Date();
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    const mon = new Date(d.setDate(diff));
-    mon.setHours(0, 0, 0, 0);
-    setCurrentMonday(mon);
+    const today = berlinDate();
+    const weekday = new Date(today + "T12:00:00Z").getUTCDay();
+    setCurrentMonday(addCalendarDays(today, -((weekday + 6) % 7)));
   };
 
   // Run German Labor Law Audit
@@ -159,7 +130,7 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
       });
       setCheckSummary(summary);
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     } finally {
       setChecking(false);
     }
@@ -174,26 +145,29 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
         end: periodEnd,
         changeReason: changeReason || "Phát hành lịch tuần chính thức",
       });
-      alert(lang === "vi" ? res.messageVi : res.messageDe);
+      notify(lang === "vi" ? res.messageVi : res.messageDe);
       setShowPublishModal(false);
       setChangeReason("");
       loadData();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     } finally {
       setPublishBusy(false);
     }
   };
 
   const executeDeleteShift = async () => {
-    if (!shiftToDelete) return;
+    if (!shiftToDelete || deleting) return;
+    setDeleteError("");
     setDeleting(true);
     try {
       await api(`/scheduling/shifts/${shiftToDelete.shiftId}`, "DELETE");
+      setShifts((current) => current.filter((shift) => shift.shiftId !== shiftToDelete.shiftId));
+      setScheduleNotice(lang === "vi" ? `Đã xóa ca nháp của ${shiftToDelete.employeeName}.` : `Entwurf für ${shiftToDelete.employeeName} gelöscht.`);
       setShiftToDelete(null);
       loadData();
     } catch (e) {
-      alert((e as Error).message);
+      setDeleteError((e as Error).message);
     } finally {
       setDeleting(false);
     }
@@ -204,23 +178,25 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
 
   return (
     <div className="scheduling-page">
+      {scheduleNotice && <p className="schedule-notice" role="status">{scheduleNotice}</p>}
+      {loadError && <p role="alert" className="text-sm text-red-700 dark:text-red-300">{loadError}</p>}
       {/* Action Toolbar */}
       <div className="flex items-center justify-end gap-3 mb-4">
-        <button
+        {(canManageBranch || selfEmployeeId != null) && (        <button
           onClick={() => setShowSwapModal(true)}
           className="flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-white dark:bg-emerald-950/40 text-slate-700 dark:text-emerald-200 hover:bg-slate-50 dark:hover:bg-emerald-900/50 shadow-sm transition"
         >
           <ArrowLeftRight size={16} className="text-emerald-500" />
           <span>{t("sched.swaps")}</span>
-        </button>
-        <button
+        </button>)}
+        {canManageBranch && employees.length > 0 && (        <button
           onClick={() => setShowAddModal(true)}
           className="flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-lg border border-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 transition"
         >
           <Plus size={16} />
           <span>{t("sched.add_shift")}</span>
-        </button>
-        <button
+        </button>)}
+        {canManageBranch && (        <button
           onClick={openPublishModal}
           className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition"
         >
@@ -231,17 +207,18 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
               {draftCount} {lang === "vi" ? "nháp" : "Entwürfe"}
             </span>
           )}
-        </button>
+        </button>)}
       </div>
 
       {/* Week Navigation & Branch Selector Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl border border-slate-200 dark:border-emerald-900/40 bg-white dark:bg-emerald-950/20 shadow-sm my-6">
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
+          {canManageBranch && (          <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
             <Building size={16} className="text-emerald-500" />
             <select
+              aria-label={lang === "vi" ? "Chi nhánh xếp lịch" : "Niederlassung im Dienstplan"}
               value={selectedBranchId}
-              onChange={(e) => setSelectedBranchId(Number(e.target.value))}
+              onChange={(e) => setSelectedBranchId(e.target.value)}
               className="px-3 py-1.5 text-sm font-semibold rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-slate-50 dark:bg-emerald-950/40 text-slate-800 dark:text-slate-200"
             >
               {branches.map((b) => (
@@ -250,7 +227,7 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
                 </option>
               ))}
             </select>
-          </div>
+          </div>)}
         </div>
 
         {/* Date Selector */}
@@ -276,8 +253,8 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
             <ChevronRight size={18} />
           </button>
           <div className="text-sm font-semibold text-slate-800 dark:text-slate-200 ml-2">
-            {weekDays[0].toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })} —{" "}
-            {weekDays[6].toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })}
+            {weekDays[0].toLocaleDateString(lang === "vi" ? "vi-VN" : "de-DE", { day: "2-digit", month: "2-digit" })} —{" "}
+            {weekDays[6].toLocaleDateString(lang === "vi" ? "vi-VN" : "de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}
           </div>
         </div>
 
@@ -296,10 +273,11 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
 
       {/* Interactive Weekly Shift Grid */}
       <div className="rounded-xl border border-slate-200 dark:border-emerald-900/40 bg-white dark:bg-emerald-950/20 overflow-x-auto shadow-sm">
-        <div className="min-w-[900px] grid grid-cols-7 divide-x divide-slate-200 dark:divide-emerald-900/40 border-b border-slate-200 dark:border-emerald-900/40">
+        {!canManage ? (loading ? <p className="agenda-message" role="status">{lang === "vi" ? "Đang tải lịch…" : "Dienstplan wird geladen…"}</p> : shifts.length ? <ShiftAgenda data={{ branches, selfPostings }} shifts={shifts} /> : <p className="agenda-message">{lang === "vi" ? "Chưa có ca được công bố trong tuần này." : "Für diese Woche sind keine Dienste veröffentlicht."}</p>) : <>
+        <div className="week-grid divide-x divide-slate-200 dark:divide-emerald-900/40 border-b border-slate-200 dark:border-emerald-900/40">
           {weekDays.map((d, index) => {
             const isSunday = d.getDay() === 0;
-            const isToday = d.toDateString() === new Date().toDateString();
+            const isToday = addCalendarDays(currentMonday, index) === berlinDate();
             const dayNamesVi = ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
             const dayNamesDe = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
             return (
@@ -314,7 +292,7 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
                 }`}
               >
                 <div
-                  className={`text-xs font-semibold ${
+                  className={`text-[15px] font-semibold ${
                     isSunday ? "text-amber-600 dark:text-amber-400" : "text-slate-500 dark:text-slate-400"
                   }`}
                 >
@@ -328,7 +306,7 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
                   {d.getDate()}
                 </div>
                 {isSunday && (
-                  <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-semibold">
+                  <span className="inline-block mt-1 text-[14px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-semibold">
                     ArbZG §11
                   </span>
                 )}
@@ -343,42 +321,34 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
             Đang tải dữ liệu ca trực...
           </div>
         ) : (
-          <div className="min-w-[900px] grid grid-cols-7 divide-x divide-slate-200 dark:divide-emerald-900/40 min-h-[460px]">
-            {weekDays.map((dayDate, dayIdx) => {
-              const dayString = dayDate.toISOString().slice(0, 10);
-              const dayShifts = shifts.filter((s) => s.plannedStartUtc.slice(0, 10) === dayString);
+          <div className="week-grid divide-x divide-slate-200 dark:divide-emerald-900/40 min-h-[460px]">
+            {weekDays.map((_, dayIdx) => {
+              const dayString = addCalendarDays(currentMonday, dayIdx);
+              const dayShifts = shifts.filter((s) => berlinDate(s.plannedStartUtc) === dayString);
 
               return (
-                <div key={dayIdx} className="p-2.5 space-y-2.5">
+                <div key={dayIdx} className="p-2.5 space-y-2.5 text-center">
                   {dayShifts.map((shift) => {
-                    const sTime = shift.plannedStartUtc.slice(11, 16);
-                    const eTime = shift.plannedEndUtc.slice(11, 16);
+                    const sTime = berlinTime(shift.plannedStartUtc);
+                    const eTime = berlinTime(shift.plannedEndUtc);
                     const isDraft = shift.status === "DRAFT";
 
                     return (
                       <div
                         key={shift.shiftId}
-                        className={`group relative p-2.5 rounded-lg border text-xs shadow-xs transition hover:shadow-md ${
+                        className={`group relative p-2.5 rounded-lg border text-[16px] ${
                           isDraft
                             ? "border-amber-300/80 bg-amber-50/50 dark:bg-amber-950/30 dark:border-amber-700/50"
                             : "border-emerald-300/80 bg-emerald-50/50 dark:bg-emerald-950/30 dark:border-emerald-700/50"
                         }`}
                       >
-                        <button
-                          onClick={() => setShiftToDelete(shift)}
-                          className="absolute right-1.5 top-1.5 opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 rounded transition cursor-pointer"
-                          title={lang === "vi" ? "Xóa ca trực này" : "Schicht löschen"}
-                        >
-                          <X size={13} />
-                        </button>
-
-                        <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-100">
+                        <div className="flex flex-wrap items-center justify-center gap-1.5 font-semibold text-slate-800 dark:text-slate-100">
                           <span className="flex items-center gap-1 font-mono text-emerald-700 dark:text-emerald-300">
                             <Clock size={12} />
                             {sTime} - {eTime}
                           </span>
                           <span
-                            className={`text-[9px] px-1 py-0.2 rounded font-semibold ${
+                            className={`text-[14px] px-1.5 rounded font-semibold ${
                               isDraft
                                 ? "bg-amber-200 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200"
                                 : "bg-emerald-200 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200"
@@ -388,20 +358,25 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
                           </span>
                         </div>
 
-                        <div className="font-semibold text-slate-900 dark:text-white mt-1.5 truncate">
+                        <div className="font-semibold text-slate-900 dark:text-white mt-1.5 break-words">
                           {shift.employeeName}
                         </div>
 
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between mt-1">
-                          <span className="truncate">{formatPosition(shift.positionName || shift.templateName, lang)}</span>
+                        <div className="text-[14px] text-slate-600 dark:text-slate-300 flex flex-wrap justify-center gap-x-2 mt-1">
+                          <span>{formatPosition(shift.positionName || shift.templateName, lang)}</span>
                           <span>{shift.plannedBreakMinutes}m {lang === "vi" ? "nghỉ" : "Pause"}</span>
                         </div>
+                        {canManageBranch && isDraft && <button className="record-action shift-delete"
+                          aria-label={lang === "vi" ? `Xóa ca nháp của ${shift.employeeName} lúc ${sTime}` : `Entwurf von ${shift.employeeName} um ${sTime} löschen`}
+                          onClick={() => { setDeleteError(""); setShiftToDelete(shift); }}>
+                          <Trash2 size={13} /> {lang === "vi" ? "Xóa ca nháp" : "Entwurf löschen"}
+                        </button>}
                       </div>
                     );
                   })}
 
                   {dayShifts.length === 0 && (
-                    <div className="h-full flex items-center justify-center py-10 text-slate-300 dark:text-emerald-950/80 text-xs">
+                    <div className="py-4 text-slate-600 dark:text-slate-300 text-[14px]">
                       {lang === "vi" ? "Trống" : "Frei"}
                     </div>
                   )}
@@ -410,17 +385,20 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
             })}
           </div>
         )}
+        </>}
       </div>
 
       {/* Modal: Add Shift */}
       {showAddModal && (
         <AddShiftModal
           branchId={selectedBranchId}
+          weekStart={currentMonday}
           templates={templates}
           employees={employees}
           onClose={() => setShowAddModal(false)}
           onSuccess={() => {
             setShowAddModal(false);
+            setScheduleNotice(lang === "vi" ? "Đã thêm ca nháp." : "Schichtentwurf angelegt.");
             loadData();
           }}
         />
@@ -443,8 +421,9 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
       {showSwapModal && (
         <ShiftSwapCenterModal
           branchId={selectedBranchId}
-          shifts={shifts}
+          shifts={shifts.filter((shift) => shift.employeeId === selfEmployeeId && shift.status === "PUBLISHED")}
           employees={employees}
+          canReview={canManageBranch}
           onClose={() => setShowSwapModal(false)}
           onSuccess={() => {
             setShowSwapModal(false);
@@ -464,6 +443,7 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
               : "Möchten Sie diese Schicht wirklich löschen? Diese Aktion entfernt den Einsatz aus dem Dienstplan."
           }
           onClose={() => setShiftToDelete(null)}
+          busy={deleting}
         >
           <div className="space-y-5 pt-1">
             <div className="p-4 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50/60 dark:bg-red-950/20 text-slate-800 dark:text-slate-200 flex items-start gap-3.5">
@@ -480,7 +460,7 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
                   </span>
                   <span>•</span>
                   <span className="font-mono font-semibold">
-                    {shiftToDelete.plannedStartUtc.slice(0, 10)} ({shiftToDelete.plannedStartUtc.slice(11, 16)} - {shiftToDelete.plannedEndUtc.slice(11, 16)})
+                    {berlinDate(shiftToDelete.plannedStartUtc)} ({berlinTime(shiftToDelete.plannedStartUtc)} - {berlinTime(shiftToDelete.plannedEndUtc)})
                   </span>
                   <span>•</span>
                   <span>{shiftToDelete.plannedBreakMinutes}m {lang === "vi" ? "nghỉ" : "Pause"}</span>
@@ -488,10 +468,12 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
               </div>
             </div>
 
+            {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-emerald-900/40">
               <button
                 type="button"
                 onClick={() => setShiftToDelete(null)}
+                disabled={deleting}
                 className="px-5 py-2.5 rounded-xl border border-slate-300 dark:border-emerald-800 bg-white dark:bg-emerald-950/60 text-slate-700 dark:text-emerald-200 font-semibold text-sm hover:bg-slate-100 dark:hover:bg-emerald-900/40 shadow-xs transition cursor-pointer"
               >
                 {lang === "vi" ? "Hủy bỏ" : "Abbrechen"}
@@ -519,26 +501,34 @@ export function SchedulingView({ branches }: { branches: Branch[] }) {
 
 function AddShiftModal({
   branchId,
+  weekStart,
   templates,
   employees,
   onClose,
   onSuccess,
 }: {
-  branchId: number;
+  branchId: string;
+  weekStart: string;
   templates: ShiftTemplate[];
   employees: EmployeeDto[];
   onClose: () => void;
   onSuccess: () => void;
 }) {
   const { lang } = useI18n();
-  const [employeeId, setEmployeeId] = useState<number>(employees[0]?.employeeId || 2);
+  const [employeeId, setEmployeeId] = useState<number>(employees[0]?.employeeId ?? 0);
   const [templateId, setTemplateId] = useState<number | null>(templates[0]?.templateId || null);
-  const [shiftDate, setShiftDate] = useState(new Date().toISOString().slice(0, 10));
-  const [startTime, setStartTime] = useState("10:00");
-  const [endTime, setEndTime] = useState("18:00");
-  const [breakMinutes, setBreakMinutes] = useState(30);
+  const [shiftDate, setShiftDate] = useState(() => {
+    const today = berlinDate();
+    return today >= weekStart && today < addCalendarDays(weekStart, 7) ? today : weekStart;
+  });
+  const [startTime, setStartTime] = useState(templates[0]?.localStartTime.slice(0, 5) ?? "10:00");
+  const [endTime, setEndTime] = useState(templates[0]?.localEndTime.slice(0, 5) ?? "18:00");
+  const [breakMinutes, setBreakMinutes] = useState(templates[0]?.defaultBreakMinutes ?? 30);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const changed = useDraftChanged([employeeId, templateId, shiftDate, startTime, endTime, breakMinutes]);
+  const { requestClose, confirmation } = useDraftClose(onClose, busy, () => changed);
 
   const handleTemplateSelect = (tId: number) => {
     setTemplateId(tId);
@@ -554,24 +544,14 @@ function AddShiftModal({
     e.preventDefault();
     setError("");
 
-    // Calculate ISO strings in UTC
-    const startIso = `${shiftDate}T${startTime}:00Z`;
-    // If end time is before start time, it crosses midnight
-    const isNextDay = endTime <= startTime;
-    let endDate = shiftDate;
-    if (isNextDay) {
-      const d = new Date(shiftDate);
-      d.setDate(d.getDate() + 1);
-      endDate = d.toISOString().slice(0, 10);
-    }
-    const endIso = `${endDate}T${endTime}:00Z`;
-
     setBusy(true);
     try {
+      const startIso = berlinInstant(shiftDate, startTime);
+      const endIso = berlinInstant(endTime < startTime ? addCalendarDays(shiftDate, 1) : shiftDate, endTime);
       await api("/scheduling/shifts", "POST", {
         branchId,
         employeeId,
-        templateId,
+        templateId: templateId || null,
         start: startIso,
         end: endIso,
         breakMinutes,
@@ -588,17 +568,18 @@ function AddShiftModal({
     <Modal
       open={true}
       wide={true}
+      busy={busy}
       title={lang === "vi" ? "Thêm ca làm việc mới" : "Neue Schicht anlegen"}
       description={
         lang === "vi"
           ? "Phân công nhân sự theo mẫu ca hoặc tùy chỉnh thời gian trực ca tuân thủ luật lao động Đức ArbZG."
           : "Einsatz nach Schichtvorlage oder mit individuellen Arbeitszeiten planen."
       }
-      onClose={onClose}
+      onClose={requestClose}
     >
       <form onSubmit={submit} className="space-y-5 pt-1">
         {error && (
-          <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 text-sm font-medium flex items-center gap-2">
+          <div role="alert" className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 text-sm font-medium flex items-center gap-2">
             <AlertTriangle size={17} className="shrink-0" />
             <span>{error}</span>
           </div>
@@ -636,10 +617,10 @@ function AddShiftModal({
         )}
 
         <div>
-          <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+          <label htmlFor="shift-employeeId" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
             {lang === "vi" ? "Nhân viên trực ca *" : "Mitarbeitende Person *"}
           </label>
-          <select
+          <select id="shift-employeeId"
             value={employeeId}
             onChange={(e) => setEmployeeId(Number(e.target.value))}
             className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
@@ -654,10 +635,10 @@ function AddShiftModal({
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+            <label htmlFor="shift-shiftDate" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
               {lang === "vi" ? "Ngày làm việc *" : "Arbeitstag *"}
             </label>
-            <input
+            <input id="shift-shiftDate"
               type="date"
               required
               value={shiftDate}
@@ -666,10 +647,10 @@ function AddShiftModal({
             />
           </div>
           <div>
-            <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+            <label htmlFor="shift-startTime" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
               {lang === "vi" ? "Giờ bắt đầu *" : "Beginn *"}
             </label>
-            <input
+            <input id="shift-startTime"
               type="time"
               required
               value={startTime}
@@ -678,10 +659,10 @@ function AddShiftModal({
             />
           </div>
           <div>
-            <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+            <label htmlFor="shift-endTime" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
               {lang === "vi" ? "Giờ kết thúc *" : "Ende *"}
             </label>
-            <input
+            <input id="shift-endTime"
               type="time"
               required
               value={endTime}
@@ -692,10 +673,10 @@ function AddShiftModal({
         </div>
 
         <div>
-          <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+          <label htmlFor="shift-breakMinutes" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
             {lang === "vi" ? "Thời gian nghỉ giải lao (phút)" : "Ruhepause (Minuten)"}
           </label>
-          <input
+          <input id="shift-breakMinutes"
             type="number"
             min="0"
             step="5"
@@ -713,7 +694,7 @@ function AddShiftModal({
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-emerald-900/40">
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose} disabled={busy}
             className="px-5 py-2.5 rounded-xl border border-slate-300 dark:border-emerald-800 bg-white dark:bg-emerald-950/60 text-slate-700 dark:text-emerald-200 font-semibold text-sm hover:bg-slate-100 dark:hover:bg-emerald-900/40 shadow-xs transition cursor-pointer"
           >
             {lang === "vi" ? "Hủy bỏ" : "Abbrechen"}
@@ -732,6 +713,7 @@ function AddShiftModal({
           </button>
         </div>
       </form>
+      {confirmation}
     </Modal>
   );
 }
@@ -912,30 +894,34 @@ function ShiftSwapCenterModal({
   branchId,
   shifts,
   employees,
+  canReview,
   onClose,
   onSuccess,
 }: {
-  branchId: number;
+  branchId: string;
   shifts: Shift[];
   employees: EmployeeDto[];
+  canReview: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }) {
   const { lang } = useI18n();
+  const notify = useNotice();
   const [requests, setRequests] = useState<ShiftSwapRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"list" | "create">("list");
 
   // Create request form
-  const [sourceShiftId, setSourceShiftId] = useState<number>(shifts[0]?.shiftId || 1);
-  const [targetEmployeeId, setTargetEmployeeId] = useState<number>(employees[0]?.employeeId || 3);
+  const [sourceShiftId, setSourceShiftId] = useState<number>(shifts[0]?.shiftId ?? 0);
+  const [targetEmployeeId, setTargetEmployeeId] = useState(0);
+  const [colleagues, setColleagues] = useState<Array<Pick<EmployeeDto, "employeeId" | "displayName">>>([]);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
 
   const loadRequests = async () => {
     setLoading(true);
     try {
-      const data = await api<ShiftSwapRequest[]>(`/scheduling/swap-requests?branchId=${branchId}`);
+      const data = await api<ShiftSwapRequest[]>(`/scheduling/swap-requests?${branchId ? "branchId=" + encodeURIComponent(branchId) : ""}`);
       setRequests(data);
     } catch (e) {
       console.error(e);
@@ -946,31 +932,42 @@ function ShiftSwapCenterModal({
 
   useEffect(() => {
     loadRequests();
-  }, []);
+  }, [branchId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setColleagues([]);
+    setTargetEmployeeId(0);
+    if (sourceShiftId) api<typeof colleagues>(`/scheduling/shifts/${sourceShiftId}/colleagues`).then((list) => {
+      if (!cancelled) setColleagues(list);
+    }).catch((error: Error) => { if (!cancelled) console.error(error); });
+    return () => { cancelled = true; };
+  }, [sourceShiftId]);
 
   const approve = async (id: number) => {
     try {
       await api(`/scheduling/swap-requests/${id}/approve`, "POST", { reason: "Quản lý đã phê duyệt" });
-      alert(lang === "vi" ? "Đã phê duyệt đổi ca thành công!" : "Schichttausch erfolgreich genehmigt!");
+      notify(lang === "vi" ? "Đã phê duyệt đổi ca thành công!" : "Schichttausch erfolgreich genehmigt!");
       loadRequests();
       onSuccess();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     }
   };
 
   const reject = async (id: number) => {
     try {
       await api(`/scheduling/swap-requests/${id}/reject`, "POST", { reason: "Không phù hợp điều kiện vận hành" });
-      alert(lang === "vi" ? "Đã từ chối yêu cầu đổi ca." : "Schichttausch abgelehnt.");
+      notify(lang === "vi" ? "Đã từ chối yêu cầu đổi ca." : "Schichttausch abgelehnt.");
       loadRequests();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     }
   };
 
   const submitCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!sourceShiftId || !targetEmployeeId) return;
     setBusy(true);
     try {
       await api("/scheduling/swap-requests", "POST", {
@@ -978,11 +975,11 @@ function ShiftSwapCenterModal({
         targetEmployeeId,
         reason,
       });
-      alert(lang === "vi" ? "Đã gửi yêu cầu đổi ca tới đồng nghiệp!" : "Tauschanfrage erfolgreich gesendet!");
+      notify(lang === "vi" ? "Đã gửi yêu cầu đổi ca tới đồng nghiệp!" : "Tauschanfrage erfolgreich gesendet!");
       setActiveTab("list");
       loadRequests();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -1025,6 +1022,7 @@ function ShiftSwapCenterModal({
                 : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
             }`}
             onClick={() => setActiveTab("create")}
+            disabled={!shifts.length}
           >
             <ArrowLeftRight size={16} />
             <span>{lang === "vi" ? "Gửi yêu cầu đổi ca mới" : "Neuen Tausch anfragen"}</span>
@@ -1045,6 +1043,7 @@ function ShiftSwapCenterModal({
               ) : (
                 requests.map((r) => {
                   const targetEmp = employees.find((e) => e.employeeId === r.targetEmployeeId);
+                  const targetName = r.targetEmployeeName ?? targetEmp?.displayName ?? `#${r.targetEmployeeId}`;
                   const displayReason =
                     r.reason === "Demo request to exchange a shift"
                       ? lang === "vi"
@@ -1064,7 +1063,7 @@ function ShiftSwapCenterModal({
                           <span>
                             {lang === "vi" ? "Chuyển cho" : "Übertragen an"}{" "}
                             <span className="font-semibold text-slate-900 dark:text-white">
-                              {targetEmp ? targetEmp.displayName : `#${r.targetEmployeeId}`}
+                              {targetName}
                             </span>
                           </span>
                         </div>
@@ -1074,7 +1073,7 @@ function ShiftSwapCenterModal({
                         </div>
                       </div>
                       <div className="flex items-center gap-2 self-end sm:self-center">
-                        {r.status === "PENDING" ? (
+                        {canReview && r.status === "PENDING" ? (
                           <>
                             <button
                               type="button"
@@ -1142,8 +1141,8 @@ function ShiftSwapCenterModal({
               >
                 {shifts.map((s) => (
                   <option key={s.shiftId} value={s.shiftId} className="dark:bg-slate-900">
-                    Ca #{s.shiftId} • {s.plannedStartUtc.slice(0, 10)} ({s.plannedStartUtc.slice(11, 16)} -{" "}
-                    {s.plannedEndUtc.slice(11, 16)}) • {s.employeeName}
+                    Ca #{s.shiftId} • {berlinDate(s.plannedStartUtc)} ({berlinTime(s.plannedStartUtc)} -{" "}
+                    {berlinTime(s.plannedEndUtc)}) • {s.employeeName}
                   </option>
                 ))}
               </select>
@@ -1158,9 +1157,10 @@ function ShiftSwapCenterModal({
                 onChange={(e) => setTargetEmployeeId(Number(e.target.value))}
                 className="w-full h-11 px-3.5 text-sm rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-slate-800 dark:text-slate-200 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition"
               >
-                {employees.map((emp) => (
+                <option value={0} disabled>{lang === "vi" ? "Chọn đồng nghiệp" : "Kollegen auswählen"}</option>
+                {colleagues.map((emp) => (
                   <option key={emp.employeeId} value={emp.employeeId} className="dark:bg-slate-900">
-                    {emp.displayName} ({emp.employeeCode}) • {formatPosition(emp.positionNameDe, lang)}
+                    {emp.displayName}
                   </option>
                 ))}
               </select>
@@ -1189,7 +1189,7 @@ function ShiftSwapCenterModal({
               </button>
               <button
                 type="submit"
-                disabled={busy}
+                disabled={busy || !sourceShiftId || !targetEmployeeId}
                 className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm shadow-md inline-flex items-center gap-2 transition disabled:opacity-50"
               >
                 <ArrowLeftRight size={16} />

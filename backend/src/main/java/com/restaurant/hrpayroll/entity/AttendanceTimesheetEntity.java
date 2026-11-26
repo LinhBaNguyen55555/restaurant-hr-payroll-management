@@ -17,7 +17,7 @@ public class AttendanceTimesheetEntity {
   public Long employeeId;
 
   @Column(name = "branch_id", nullable = false)
-  public Long branchId;
+  public String branchId;
 
   @Column(name = "shift_id")
   public Long shiftId;
@@ -61,8 +61,8 @@ public class AttendanceTimesheetEntity {
   @Column(name = "has_exception", nullable = false)
   public Boolean hasException = false;
 
-  @Column(name = "approved_by_user_id")
-  public Long approvedByUserId;
+  @Column(name = "approved_by_user_id", length = 255)
+  public String approvedByUserId;
 
   @Column(name = "approved_at_utc")
   public Instant approvedAtUtc;

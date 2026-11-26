@@ -142,18 +142,23 @@ public class AuthService {
     boolean matches =
       password != null &&
       password.getBytes(StandardCharsets.UTF_8).length <= 72 &&
-      (encoder.matches(password, u == null ? dummyHash : u.passwordHash) ||
-       ("Atelier!2026Demo".equals(password) && encoder.matches("Password123!", u == null ? dummyHash : u.passwordHash)) ||
-       ("Password123!".equals(password) && encoder.matches("Atelier!2026Demo", u == null ? dummyHash : u.passwordHash)));
+      encoder.matches(password, u == null ? dummyHash : u.passwordHash);
+    Instant now = Instant.now();
+    boolean currentlyLocked =
+      u != null && u.lockedUntil != null && u.lockedUntil.isAfter(now);
+    if (u != null && u.lockedUntil != null && !u.lockedUntil.isAfter(now)) {
+      u.failures = 0;
+      u.lockedUntil = null;
+    }
     if (
       u == null ||
       !matches ||
       !u.active ||
-      (u.lockedUntil != null && u.lockedUntil.isAfter(Instant.now()))
+      currentlyLocked
     ) {
-      if (u != null) {
+      if (u != null && u.active && !currentlyLocked) {
         u.failures++;
-        if (u.failures >= 5) u.lockedUntil = Instant.now().plusSeconds(900);
+        if (u.failures >= 5) u.lockedUntil = now.plusSeconds(900);
       }
       throw new ResponseStatusException(
         HttpStatus.UNAUTHORIZED,
@@ -462,9 +467,6 @@ public class AuthService {
   }
 
   private synchronized void throttle(String key, int limit) {
-    if (key.contains("127.0.0.1") || key.contains("0:0:0:0:0:0:0:1") || key.contains("localhost")) {
-      limit = Math.max(limit, 1000);
-    }
     Instant now = Instant.now();
     if (attempts.size() > 10000) attempts
       .entrySet()

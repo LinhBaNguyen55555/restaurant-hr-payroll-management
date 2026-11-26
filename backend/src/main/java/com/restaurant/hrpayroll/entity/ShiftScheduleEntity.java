@@ -16,7 +16,7 @@ public class ShiftScheduleEntity {
   public Long employeeId;
 
   @Column(name = "branch_id", nullable = false)
-  public Long branchId;
+  public String branchId;
 
   @Column(name = "template_id")
   public Long templateId;

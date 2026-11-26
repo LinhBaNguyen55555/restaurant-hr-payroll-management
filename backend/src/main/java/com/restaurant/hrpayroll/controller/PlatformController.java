@@ -399,6 +399,22 @@ public class PlatformController {
       )
       .map(a -> Map.<String, Object>of("id", a.id, "name", a.name))
       .toList();
+    Set<String> entityIds = new HashSet<>(
+      entities.stream().map(e -> e.id).toList()
+    );
+    Set<String> visibleUserIds = new HashSet<>(
+      db
+        .all(UserAccount.class)
+        .stream()
+        .filter(
+          a ->
+            csv(a.branchIds).stream().anyMatch(branchIds::contains) ||
+            csv(a.legalEntityIds).stream().anyMatch(entityIds::contains) ||
+            managers.stream().anyMatch(m -> m.managerId.equals(a.id))
+        )
+        .map(a -> a.id)
+        .toList()
+    );
     List<AuditEvent> events = perms.contains("audit.read")
       ? db
           .all(AuditEvent.class)
@@ -406,7 +422,10 @@ public class PlatformController {
           .filter(
             a ->
               access.global(u) ||
-              (a.branchId != null && branchIds.contains(a.branchId))
+              (a.branchId != null && branchIds.contains(a.branchId)) ||
+              (a.branchId == null &&
+                ((a.target != null && entityIds.contains(a.target)) ||
+                  (a.actorId != null && visibleUserIds.contains(a.actorId))))
           )
           .sorted(
             Comparator.comparing((AuditEvent a) -> a.createdAt).reversed()
@@ -417,6 +436,9 @@ public class PlatformController {
     Map<String, Object> result = new LinkedHashMap<>();
     result.put("user", auth.view(u, req.getSession()));
     result.put("permissions", perms);
+    Long selfEmployee = access.selfEmployee();
+    result.put("selfEmployeeId", selfEmployee);
+    result.put("selfPostings", access.currentPostings(selfEmployee));
     result.put("entities", entities);
     result.put("branches", branches);
     result.put(
@@ -755,6 +777,9 @@ public class PlatformController {
     a.employeeId = e.id;
     a.branchId = b.id;
     a.workLocationId = l.id;
+    a.positionId = db.all(EmployeeAssignment.class).stream()
+      .filter(previous -> previous.employeeId.equals(e.id) && previous.positionId != null && previous.validFrom.isBefore(in.validFrom))
+      .max(Comparator.comparing(previous -> previous.validFrom)).map(previous -> previous.positionId).orElse(null);
     a.validFrom = in.validFrom;
     a.validTo = in.validTo;
     a.kind = in.kind;

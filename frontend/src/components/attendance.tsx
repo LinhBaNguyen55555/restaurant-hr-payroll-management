@@ -1,3 +1,5 @@
+import { useDraftChanged, useDraftClose } from "./draft-close";
+import { useNotice } from "../lib/notice";
 import { useState, useEffect } from "react";
 import {
   Clock,
@@ -15,6 +17,8 @@ import {
 } from "lucide-react";
 import {
   api,
+  getTimesheetAllowance,
+  type TimesheetAllowanceBreakdown,
   type AttendanceStatus,
   type Timesheet,
   type Branch,
@@ -22,13 +26,17 @@ import {
 } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { Modal } from "./experience";
+import { addCalendarDays, berlinDate, berlinInstant, berlinTime } from "../lib/work-time";
 
 export function AttendanceView({
-  branches,
+  branches, canManage, selfEmployeeId,
 }: {
   branches: Branch[];
+  canManage: boolean;
+  selfEmployeeId?: number | null;
 }) {
   const { lang } = useI18n();
+  const notify = useNotice();
 
   const [status, setStatus] = useState<AttendanceStatus | null>(null);
   const [timesheets, setTimesheets] = useState<Timesheet[]>([]);
@@ -39,6 +47,7 @@ export function AttendanceView({
   // Modals
   const [selectedTimesheetForChange, setSelectedTimesheetForChange] = useState<Timesheet | null>(null);
   const [showManualModal, setShowManualModal] = useState(false);
+  const [allowance, setAllowance] = useState<TimesheetAllowanceBreakdown | null>(null);
 
   // Live Clock effect
   useEffect(() => {
@@ -47,6 +56,7 @@ export function AttendanceView({
   }, []);
 
   const loadData = async () => {
+    if (!selfEmployeeId) { setLoading(false); return; }
     try {
       const s = await api<AttendanceStatus>("/attendance/status");
       setStatus(s);
@@ -62,7 +72,7 @@ export function AttendanceView({
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [selfEmployeeId]);
 
   const handleCheckIn = async () => {
     setActionBusy(true);
@@ -70,7 +80,7 @@ export function AttendanceView({
       await api("/attendance/check-in", "POST", { source: "WEB_PORTAL" });
       await loadData();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     } finally {
       setActionBusy(false);
     }
@@ -82,7 +92,7 @@ export function AttendanceView({
       await api("/attendance/check-out", "POST", { source: "WEB_PORTAL" });
       await loadData();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     } finally {
       setActionBusy(false);
     }
@@ -94,7 +104,7 @@ export function AttendanceView({
       await api("/attendance/breaks/start", "POST", { breakType: "STATUTORY_BREAK" });
       await loadData();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     } finally {
       setActionBusy(false);
     }
@@ -106,7 +116,7 @@ export function AttendanceView({
       await api("/attendance/breaks/end", "POST", {});
       await loadData();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     } finally {
       setActionBusy(false);
     }
@@ -115,7 +125,7 @@ export function AttendanceView({
   const formatTimeStr = (iso: string | null) => {
     if (!iso) return "--:--";
     try {
-      return new Date(iso).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+      return berlinTime(iso);
     } catch {
       return iso.slice(11, 16);
     }
@@ -131,27 +141,19 @@ export function AttendanceView({
     <div className="space-y-6">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            {lang === "vi" ? "Chấm công trực tiếp & Quản lý giờ nghỉ" : "Zeiterfassung & Pausenmanagement"}
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {lang === "vi"
-              ? "Ghi nhận bắt đầu, kết thúc ca và thời gian nghỉ giải lao theo luật lao động CHLB Đức (ArbZG §4)."
-              : "Direkte Erfassung von Arbeitszeiten und Pausen gemäß Arbeitszeitgesetz (ArbZG §4)."}
-          </p>
-        </div>
 
-        <button
+        {canManage && branches.length > 0 && (        <button
           onClick={() => setShowManualModal(true)}
           className="self-start sm:self-center px-4 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-slate-200 font-semibold text-sm transition shadow-xs flex items-center gap-2 cursor-pointer"
         >
           <Plus size={16} />
           <span>{lang === "vi" ? "Bổ sung giờ công thủ công" : "Manuelle Nacherfassung"}</span>
-        </button>
+        </button>)}
       </div>
 
+      {!selfEmployeeId && <p role="status">{lang === "vi" ? "Tài khoản chưa liên kết hồ sơ nhân viên." : "Kein Mitarbeiterprofil mit diesem Konto verknüpft."}</p>}
       {/* Digital Time Clock Widget */}
+      {selfEmployeeId != null && <>
       <div className="p-6 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-emerald-950/20 shadow-sm relative overflow-hidden">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           {/* Left: Clock & Status */}
@@ -176,13 +178,14 @@ export function AttendanceView({
             </div>
 
             <div className="font-mono text-4xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              {currentTime.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              {currentTime.toLocaleTimeString("vi-VN", { timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
             </div>
 
             <div className="text-xs text-slate-500 dark:text-slate-400 font-medium flex items-center gap-2">
               <Calendar size={14} />
               <span>
                 {currentTime.toLocaleDateString("vi-VN", {
+                  timeZone: "Europe/Berlin",
                   weekday: "long",
                   year: "numeric",
                   month: "long",
@@ -280,29 +283,29 @@ export function AttendanceView({
 
         <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-emerald-950/20 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm border-collapse">
+            <table className="w-full border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/5 text-slate-600 dark:text-slate-400 text-xs font-semibold">
-                  <th className="py-3.5 px-4">{lang === "vi" ? "Ngày làm việc" : "Datum"}</th>
-                  <th className="py-3.5 px-4">{lang === "vi" ? "Ca kế hoạch" : "Dienstplan"}</th>
-                  <th className="py-3.5 px-4">{lang === "vi" ? "Giờ vào" : "Kommen"}</th>
-                  <th className="py-3.5 px-4">{lang === "vi" ? "Giờ ra" : "Gehen"}</th>
-                  <th className="py-3.5 px-4">{lang === "vi" ? "Nghỉ giải lao" : "Pause"}</th>
-                  <th className="py-3.5 px-4">{lang === "vi" ? "Tổng giờ làm" : "Gesamt"}</th>
-                  <th className="py-3.5 px-4">{lang === "vi" ? "Trạng thái" : "Status"}</th>
-                  <th className="py-3.5 px-4 text-right">{lang === "vi" ? "Thao tác" : "Aktion"}</th>
+                <tr className="border-b border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/5 text-slate-600 dark:text-slate-400 font-semibold">
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Ngày làm việc" : "Datum"}</th>
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Ca kế hoạch" : "Dienstplan"}</th>
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Giờ vào" : "Kommen"}</th>
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Giờ ra" : "Gehen"}</th>
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Nghỉ giải lao" : "Pause"}</th>
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Tổng giờ làm" : "Gesamt"}</th>
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Trạng thái" : "Status"}</th>
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Thao tác" : "Aktion"}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-slate-400 font-medium">
+                    <td colSpan={8} className="py-12 text-slate-400 font-medium">
                       {lang === "vi" ? "Đang tải bảng chấm công..." : "Lade Zeiterfassungen..."}
                     </td>
                   </tr>
                 ) : timesheets.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-slate-400 font-medium">
+                    <td colSpan={8} className="py-12 text-slate-400 font-medium">
                       {lang === "vi" ? "Chưa có bản ghi chấm công nào." : "Keine Zeiteinträge vorhanden."}
                     </td>
                   </tr>
@@ -316,23 +319,23 @@ export function AttendanceView({
                         <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-white">
                           {ts.workDate}
                         </td>
-                        <td className="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-mono">
+                        <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400">
                           {ts.plannedStartUtc
                             ? `${formatTimeStr(ts.plannedStartUtc)} - ${formatTimeStr(ts.plannedEndUtc)}`
                             : (lang === "vi" ? "Ngoài lịch" : "Ungeplant")}
                         </td>
-                        <td className="py-3.5 px-4 font-mono font-medium text-slate-800 dark:text-slate-200">
+                        <td className="py-3.5 px-4 font-medium text-slate-800 dark:text-slate-200">
                           {formatTimeStr(ts.actualStartUtc)}
-                          {ts.lateMinutes > 0 && (
-                            <span className="ml-1.5 text-xs text-rose-500 font-semibold" title={`Trễ ${ts.lateMinutes}m`}>
+                          {ts.lateMinutes> 0 && (
+                            <span className="ml-1.5 text-rose-500 font-semibold" title={`Trễ ${ts.lateMinutes}m`}>
                               (+{ts.lateMinutes}m)
                             </span>
                           )}
                         </td>
-                        <td className="py-3.5 px-4 font-mono font-medium text-slate-800 dark:text-slate-200">
+                        <td className="py-3.5 px-4 font-medium text-slate-800 dark:text-slate-200">
                           {formatTimeStr(ts.actualEndUtc)}
-                          {ts.earlyDepartureMinutes > 0 && (
-                            <span className="ml-1.5 text-xs text-amber-500 font-semibold" title={`Về sớm ${ts.earlyDepartureMinutes}m`}>
+                          {ts.earlyDepartureMinutes> 0 && (
+                            <span className="ml-1.5 text-amber-500 font-semibold" title={`Về sớm ${ts.earlyDepartureMinutes}m`}>
                               (-{ts.earlyDepartureMinutes}m)
                             </span>
                           )}
@@ -347,14 +350,14 @@ export function AttendanceView({
                             </span>
                           )}
                         </td>
-                        <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white font-mono">
+                        <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
                           <span className={hasOvertimeExcess ? "text-rose-600 dark:text-rose-400" : ""}>
                             {formatHours(ts.workedMinutes)}
                           </span>
                         </td>
                         <td className="py-3.5 px-4">
                           <span
-                            className={`px-2.5 py-0.5 rounded-full text-xs font-bold inline-flex items-center gap-1 ${
+                            className={`px-2.5 py-0.5 rounded-full font-bold inline-flex items-center gap-1 ${
                               ts.status === "APPROVED"
                                 ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300"
                                 : ts.status === "LOCKED"
@@ -373,11 +376,17 @@ export function AttendanceView({
                               : (lang === "vi" ? "Chờ duyệt" : "Offen")}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 text-right">
+                        <td className="py-3.5 px-4">
+                          {["APPROVED", "LOCKED"].includes(ts.status) && (
+                            <button type="button" className="px-2 py-1 font-semibold text-emerald-700 dark:text-emerald-300"
+                              onClick={() => getTimesheetAllowance(ts.timesheetId).then(setAllowance).catch((error: Error) => notify(error.message))}>
+                              SFN
+                            </button>
+                          )}
                           <button
-                            disabled={ts.isLocked}
+                            disabled={ts.isLocked || !ts.actualEndUtc}
                             onClick={() => setSelectedTimesheetForChange(ts)}
-                            className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-slate-300 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer disabled:opacity-40"
+                            className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-slate-300 font-semibold inline-flex items-center gap-1.5 transition cursor-pointer disabled:opacity-40"
                           >
                             <FileEdit size={14} />
                             <span>{lang === "vi" ? "Xin sửa giờ" : "Korrektur"}</span>
@@ -405,7 +414,24 @@ export function AttendanceView({
         />
       )}
 
+      {allowance && (
+        <Modal open title={lang === "vi" ? "Phụ cấp SFN cá nhân" : "Meine SFN-Zuschläge"}
+          description={allowance.workDate} onClose={() => setAllowance(null)}>
+          <div className="space-y-2 text-sm">
+            <p>{lang === "vi" ? "Tổng phụ cấp" : "Zuschläge gesamt"} <strong>{Number(allowance.totalPaidAmountEur).toFixed(2)} €</strong></p>
+            {allowance.segments.map((segment) => (
+              <div key={segment.segmentId ?? segment.segmentStartBerlin} className="grid grid-cols-3 gap-2 border-t border-slate-200 pt-2 dark:border-white/10">
+                <span>{berlinTime(segment.segmentStartBerlin)}–{berlinTime(segment.segmentEndBerlin)}</span>
+                <span>{segment.calculationTrace}</span>
+                <span className="text-right">{Number(segment.paidAmountEur).toFixed(2)} €</span>
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+
       {/* Modal: Manual Entry (Bổ sung giờ công thủ công) */}
+      </>}
       {showManualModal && (
         <ManualEntryModal
           branches={branches}
@@ -430,12 +456,16 @@ function ChangeRequestModal({
   onSuccess: () => void;
 }) {
   const { lang } = useI18n();
+  const notify = useNotice();
 
-  const [reqStart, setReqStart] = useState(timesheet.actualStartUtc ? timesheet.actualStartUtc.slice(11, 16) : "09:00");
-  const [reqEnd, setReqEnd] = useState(timesheet.actualEndUtc ? timesheet.actualEndUtc.slice(11, 16) : "17:00");
-  const [reqBreak, setReqBreak] = useState(timesheet.actualBreakMinutes || 30);
+  const [reqStart, setReqStart] = useState(timesheet.actualStartUtc ? berlinTime(timesheet.actualStartUtc) : "09:00");
+  const [reqEnd, setReqEnd] = useState(timesheet.actualEndUtc ? berlinTime(timesheet.actualEndUtc) : "17:00");
+  const [reqBreak, setReqBreak] = useState(timesheet.actualBreakMinutes ?? 30);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const changed = useDraftChanged([reqStart, reqEnd, reqBreak, reason]);
+  const { requestClose, confirmation } = useDraftClose(onClose, busy, () => changed);
 
   // Calculate delta minutes for escalation preview
   const originalDuration = timesheet.actualStartUtc && timesheet.actualEndUtc
@@ -444,22 +474,24 @@ function ChangeRequestModal({
 
   const [startH, startM] = reqStart.split(":").map(Number);
   const [endH, endM] = reqEnd.split(":").map(Number);
-  const newDuration = Math.max(0, (endH * 60 + endM) - (startH * 60 + startM));
+  const startTotal = startH * 60 + startM;
+  const endTotal = endH * 60 + endM;
+  const newDuration = Math.max(0, (endTotal < startTotal ? endTotal + 1440 : endTotal) - startTotal);
   const deltaMinutes = Math.abs(newDuration - originalDuration);
   const isEscalated = deltaMinutes > 60;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reason.trim()) {
-      alert(lang === "vi" ? "Vui lòng nhập lý do điều chỉnh giờ công!" : "Bitte Begründung angeben!");
+      notify(lang === "vi" ? "Vui lòng nhập lý do điều chỉnh giờ công!" : "Bitte Begründung angeben!");
       return;
     }
     setBusy(true);
 
     try {
       const workDateStr = timesheet.workDate;
-      const startIso = `${workDateStr}T${reqStart}:00.000Z`;
-      const endIso = `${workDateStr}T${reqEnd}:00.000Z`;
+      const startIso = berlinInstant(workDateStr, reqStart);
+      const endIso = berlinInstant(reqEnd < reqStart ? addCalendarDays(workDateStr, 1) : workDateStr, reqEnd);
 
       await api("/reconciliation/change-requests", "POST", {
         timesheetId: timesheet.timesheetId,
@@ -470,10 +502,10 @@ function ChangeRequestModal({
         reason,
       });
 
-      alert(lang === "vi" ? "Đã gửi yêu cầu điều chỉnh giờ công thành công!" : "Korrekturantrag erfolgreich eingereicht!");
+      notify(lang === "vi" ? "Đã gửi yêu cầu điều chỉnh giờ công thành công!" : "Korrekturantrag erfolgreich eingereicht!");
       onSuccess();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -489,7 +521,7 @@ function ChangeRequestModal({
           ? "Gửi đơn giải trình điều chỉnh thời gian làm việc hoặc giờ nghỉ khi có sự cố, quên quẹt thẻ hoặc lỗi thiết bị."
           : "Nachträgliche Zeitanpassung bei Versäumnis, technischem Ausfall oder Sonderfällen."
       }
-      onClose={onClose}
+      onClose={requestClose} busy={busy}
     >
       <form onSubmit={handleSubmit} className="space-y-4 pt-1">
         {/* Summary Card */}
@@ -499,9 +531,9 @@ function ChangeRequestModal({
               {lang === "vi" ? "Ngày làm việc: " : "Arbeitstag: "} {timesheet.workDate}
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              {lang === "vi" ? "Giờ quẹt thẻ gốc: " : "Ursprünglich: "}
-              {timesheet.actualStartUtc ? timesheet.actualStartUtc.slice(11, 16) : "--:--"} →{" "}
-              {timesheet.actualEndUtc ? timesheet.actualEndUtc.slice(11, 16) : "--:--"} ({timesheet.actualBreakMinutes}m nghỉ)
+              {lang === "vi" ? "Giờ quẹt thẻ gốc (Berlin): " : "Ursprünglich (Berlin): "}
+              {timesheet.actualStartUtc ? berlinTime(timesheet.actualStartUtc) : "--:--"} →{" "}
+              {timesheet.actualEndUtc ? berlinTime(timesheet.actualEndUtc) : "--:--"} ({timesheet.actualBreakMinutes}m nghỉ)
             </div>
           </div>
           <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-200 text-slate-800 dark:bg-white/10 dark:text-slate-300">
@@ -512,10 +544,10 @@ function ChangeRequestModal({
         {/* Inputs */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+            <label htmlFor="attendance-reqStart" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
               {lang === "vi" ? "Giờ vào đề xuất *" : "Kommen soll *"}
             </label>
-            <input
+            <input id="attendance-reqStart"
               type="time"
               required
               value={reqStart}
@@ -525,10 +557,10 @@ function ChangeRequestModal({
           </div>
 
           <div>
-            <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+            <label htmlFor="attendance-reqEnd" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
               {lang === "vi" ? "Giờ ra đề xuất *" : "Gehen soll *"}
             </label>
-            <input
+            <input id="attendance-reqEnd"
               type="time"
               required
               value={reqEnd}
@@ -538,10 +570,10 @@ function ChangeRequestModal({
           </div>
 
           <div>
-            <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+            <label htmlFor="attendance-reqBreak" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
               {lang === "vi" ? "Phút nghỉ đề xuất *" : "Pause soll (Min.) *"}
             </label>
-            <input
+            <input id="attendance-reqBreak"
               type="number"
               min="0"
               max="180"
@@ -555,10 +587,10 @@ function ChangeRequestModal({
 
         {/* Reason */}
         <div>
-          <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-            {lang === "vi" ? "Lý do điều chỉnh (bắt buộc) *" : "Begründung (Pflichtfeld) *"}
-          </label>
-          <textarea
+          <label htmlFor="attendance-reason" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Lý do điều chỉnh (bắt buộc) *" : "Begründung (Pflichtfeld) *"}
+            </label>
+          <textarea id="attendance-reason"
             required
             rows={3}
             value={reason}
@@ -595,7 +627,7 @@ function ChangeRequestModal({
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-white/10">
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose} disabled={busy}
             className="px-5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 font-semibold text-slate-700 dark:text-slate-300 text-sm transition cursor-pointer"
           >
             {lang === "vi" ? "Hủy bỏ" : "Abbrechen"}
@@ -610,6 +642,7 @@ function ChangeRequestModal({
           </button>
         </div>
       </form>
+      {confirmation}
     </Modal>
   );
 }
@@ -624,39 +657,46 @@ function ManualEntryModal({
   onSuccess: () => void;
 }) {
   const { lang } = useI18n();
+  const notify = useNotice();
 
   const [employees, setEmployees] = useState<EmployeeDto[]>([]);
-  const [branchId, setBranchId] = useState<number>(branches[0]?.id ? Number(branches[0].id) : 1);
-  const [employeeId, setEmployeeId] = useState<number>(1);
-  const [workDate, setWorkDate] = useState(new Date().toISOString().slice(0, 10));
+  const [branchId, setBranchId] = useState<string>(branches[0]?.id ?? "");
+  const [employeeId, setEmployeeId] = useState<number>(0);
+  const [workDate, setWorkDate] = useState(berlinDate());
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("17:00");
   const [breakMins, setBreakMins] = useState(30);
+  const [breakStart, setBreakStart] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api<EmployeeDto[]>("/workforce/employees")
+    setEmployees([]);
+    setEmployeeId(0);
+    if (!branchId) return;
+    let cancelled = false;
+    api<EmployeeDto[]>("/workforce/employees?branchId=" + encodeURIComponent(branchId))
       .then((list) => {
-        if (list && list.length > 0) {
+        if (!cancelled && list.length > 0) {
           setEmployees(list);
           setEmployeeId(list[0].employeeId);
         }
       })
-      .catch((err) => console.error(err));
-  }, []);
+      .catch((err) => { if (!cancelled) console.error(err); });
+    return () => { cancelled = true; };
+  }, [branchId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reason.trim()) {
-      alert(lang === "vi" ? "Bắt buộc phải nhập lý do bổ sung giờ công!" : "Bitte Begründung angeben!");
+      notify(lang === "vi" ? "Bắt buộc phải nhập lý do bổ sung giờ công!" : "Bitte Begründung angeben!");
       return;
     }
     setBusy(true);
 
     try {
-      const startIso = `${workDate}T${startTime}:00.000Z`;
-      const endIso = `${workDate}T${endTime}:00.000Z`;
+      const startIso = berlinInstant(workDate, startTime);
+      const endIso = berlinInstant(endTime < startTime ? addCalendarDays(workDate, 1) : workDate, endTime);
 
       await api("/attendance/manual-entry", "POST", {
         branchId,
@@ -665,13 +705,14 @@ function ManualEntryModal({
         startUtc: startIso,
         endUtc: endIso,
         breakMinutes: breakMins,
+        breakStartUtc: breakMins > 0 && breakStart ? berlinInstant(breakStart < startTime && endTime < startTime ? addCalendarDays(workDate, 1) : workDate, breakStart) : undefined,
         reason,
       });
 
-      alert(lang === "vi" ? "Bổ sung giờ công thủ công thành công!" : "Manuelle Zeiterfassung erfolgreich hinzugefügt!");
+      notify(lang === "vi" ? "Bổ sung giờ công thủ công thành công!" : "Manuelle Zeiterfassung erfolgreich hinzugefügt!");
       onSuccess();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -692,12 +733,12 @@ function ManualEntryModal({
       <form onSubmit={handleSubmit} className="space-y-4 pt-1">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+            <label htmlFor="attendance-branchId" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
               {lang === "vi" ? "Chi nhánh làm việc *" : "Niederlassung *"}
             </label>
-            <select
+            <select id="attendance-branchId"
               value={branchId}
-              onChange={(e) => setBranchId(Number(e.target.value))}
+              onChange={(e) => setBranchId(e.target.value)}
               className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-white/5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
             >
               {branches.map((b) => (
@@ -709,10 +750,10 @@ function ManualEntryModal({
           </div>
 
           <div>
-            <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+            <label htmlFor="attendance-employeeId" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
               {lang === "vi" ? "Nhân viên *" : "Mitarbeiter/in *"}
             </label>
-            <select
+            <select id="attendance-employeeId"
               value={employeeId}
               onChange={(e) => setEmployeeId(Number(e.target.value))}
               className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-white/5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
@@ -728,10 +769,10 @@ function ManualEntryModal({
 
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <div>
-            <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+            <label htmlFor="attendance-workDate" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
               {lang === "vi" ? "Ngày làm *" : "Datum *"}
             </label>
-            <input
+            <input id="attendance-workDate"
               type="date"
               required
               value={workDate}
@@ -741,10 +782,10 @@ function ManualEntryModal({
           </div>
 
           <div>
-            <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+            <label htmlFor="attendance-startTime" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
               {lang === "vi" ? "Giờ vào *" : "Kommen *"}
             </label>
-            <input
+            <input id="attendance-startTime"
               type="time"
               required
               value={startTime}
@@ -754,10 +795,10 @@ function ManualEntryModal({
           </div>
 
           <div>
-            <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+            <label htmlFor="attendance-endTime" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
               {lang === "vi" ? "Giờ ra *" : "Gehen *"}
             </label>
-            <input
+            <input id="attendance-endTime"
               type="time"
               required
               value={endTime}
@@ -767,10 +808,10 @@ function ManualEntryModal({
           </div>
 
           <div>
-            <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+            <label htmlFor="attendance-breakMins" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
               {lang === "vi" ? "Nghỉ (phút) *" : "Pause (Min.) *"}
             </label>
-            <input
+            <input id="attendance-breakMins"
               type="number"
               min="0"
               max="180"
@@ -782,11 +823,18 @@ function ManualEntryModal({
           </div>
         </div>
 
-        <div>
-          <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-            {lang === "vi" ? "Căn cứ & Lý do bổ sung (bắt buộc) *" : "Begründung & Nachweis *"}
+        {breakMins > 0 && (
+          <label className="grid gap-1 text-sm">
+            {lang === "vi" ? "Bắt đầu nghỉ (để tính SFN)" : "Pausenbeginn (für SFN)"}
+            <input type="time" value={breakStart} onChange={(event) => setBreakStart(event.target.value)}
+              className="w-full h-11 px-3.5 rounded-xl border border-slate-300 dark:border-white/10 dark:bg-white/5" />
           </label>
-          <textarea
+        )}
+        <div>
+          <label htmlFor="attendance-reason-2" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Căn cứ & Lý do bổ sung (bắt buộc) *" : "Begründung & Nachweis *"}
+            </label>
+          <textarea id="attendance-reason-2"
             required
             rows={2}
             value={reason}

@@ -27,8 +27,8 @@ public class ShiftSwapRequestEntity {
   @Column(name = "status", nullable = false, length = 25)
   public String status = "PENDING"; // PENDING, APPROVED, REJECTED, CANCELLED
 
-  @Column(name = "reviewed_by_user_id")
-  public Long reviewedByUserId;
+  @Column(name = "reviewed_by_user_id", length = 255)
+  public String reviewedByUserId;
 
   @Column(name = "created_at_utc")
   public Instant createdAtUtc = Instant.now();

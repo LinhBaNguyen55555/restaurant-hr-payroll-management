@@ -20,22 +20,22 @@ public class AllowanceCalculationEntity {
   public Long timesheetId;
 
   @Column(name = "employee_id", nullable = false)
-  public Long employeeId = 1L;
+  public Long employeeId;
 
   @Column(name = "allowance_rate_id", nullable = false)
-  public Long allowanceRateId = 1L;
+  public Long allowanceRateId;
 
   @Column(name = "tax_rule_id")
   public Long taxRuleId;
 
   @Column(name = "wage_rate_id", nullable = false)
-  public Long wageRateId = 1L;
+  public Long wageRateId;
 
   @Column(name = "allowance_code", nullable = false, length = 50)
   public String allowanceCode = "NIGHT";
 
   @Column(name = "base_wage_eur", nullable = false, precision = 10, scale = 2)
-  public BigDecimal baseWageEur = new BigDecimal("15.00");
+  public BigDecimal baseWageEur = BigDecimal.ZERO;
 
   @Column(name = "rate_percent", nullable = false, precision = 7, scale = 3)
   public BigDecimal ratePercent = BigDecimal.ZERO;
@@ -56,7 +56,7 @@ public class AllowanceCalculationEntity {
   public BigDecimal socialInsuranceExemptAmountEur = BigDecimal.ZERO;
 
   @Column(name = "calculation_status", nullable = false, length = 30)
-  public String calculationStatus = "CERTIFIED";
+  public String calculationStatus = "CALCULATED";
 
   @Column(name = "calculation_trace_json", columnDefinition = "json")
   public String calculationTraceJson;

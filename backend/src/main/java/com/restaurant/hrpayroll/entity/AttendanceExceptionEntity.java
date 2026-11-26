@@ -36,8 +36,8 @@ public class AttendanceExceptionEntity {
   @Column(name = "resolution_notes", length = 500)
   public String resolutionNotes;
 
-  @Column(name = "resolved_by_user_id")
-  public Long resolvedByUserId;
+  @Column(name = "resolved_by_user_id", length = 255)
+  public String resolvedByUserId;
 
   @Column(name = "resolved_at_utc")
   public Instant resolvedAtUtc;

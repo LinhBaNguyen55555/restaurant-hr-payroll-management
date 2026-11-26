@@ -22,9 +22,11 @@ public class SchedulingService {
   private EntityManager em;
 
   private final LaborLawChecker lawChecker;
+  private final Access access;
 
-  public SchedulingService(LaborLawChecker lawChecker) {
+  public SchedulingService(LaborLawChecker lawChecker, Access access) {
     this.lawChecker = lawChecker;
+    this.access = access;
   }
 
   public record ShiftDto(
@@ -32,7 +34,7 @@ public class SchedulingService {
     Long employeeId,
     String employeeCode,
     String employeeName,
-    Long branchId,
+    String branchId,
     Long templateId,
     String templateName,
     Instant plannedStartUtc,
@@ -55,7 +57,7 @@ public class SchedulingService {
     List<LaborLawChecker.Violation> warnings
   ) {}
 
-  public List<ShiftTemplateEntity> listTemplates(Long branchId) {
+  public List<ShiftTemplateEntity> listTemplates(String branchId) {
     if (branchId == null) {
       return em.createQuery("SELECT t FROM ShiftTemplateEntity t ORDER BY t.localStartTime", ShiftTemplateEntity.class).getResultList();
     }
@@ -68,16 +70,21 @@ public class SchedulingService {
     if (template.templateName == null || template.templateName.isBlank()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tên mẫu ca không được để trống.");
     }
+    if (template.localStartTime == null || template.localEndTime == null || template.localStartTime.equals(template.localEndTime)
+      || template.defaultBreakMinutes == null || template.defaultBreakMinutes < 0)
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Giờ hoặc thời lượng nghỉ trong mẫu ca không hợp lệ.");
+    template.templateId = null;
     em.persist(template);
     return template;
   }
 
-  public List<ShiftDto> listShifts(Long branchId, Instant startUtc, Instant endUtc) {
+  public List<ShiftDto> listShifts(String branchId, Instant startUtc, Instant endUtc, Long employeeId) {
     List<ShiftScheduleEntity> list = em.createQuery(
-      "SELECT s FROM ShiftScheduleEntity s WHERE s.branchId = :b AND s.plannedStartUtc >= :s AND s.plannedEndUtc <= :e AND s.status != 'CANCELLED' ORDER BY s.plannedStartUtc ASC",
+      "SELECT s FROM ShiftScheduleEntity s WHERE (:b is null or s.branchId = :b) AND s.plannedStartUtc < :e AND s.plannedEndUtc > :s AND s.status IN ('DRAFT','PUBLISHED') AND (:emp is null or (s.status='PUBLISHED' and s.employeeId=:emp)) ORDER BY s.plannedStartUtc ASC",
       ShiftScheduleEntity.class
     )
     .setParameter("b", branchId)
+    .setParameter("emp", employeeId)
     .setParameter("s", startUtc)
     .setParameter("e", endUtc)
     .getResultList();
@@ -98,16 +105,10 @@ public class SchedulingService {
       ZonedDateTime localStart = s.plannedStartUtc.atZone(ZoneId.of("Europe/Berlin"));
       boolean isSunday = localStart.getDayOfWeek() == java.time.DayOfWeek.SUNDAY;
 
-      // Position
-      String posName = null;
-      try {
-        var pQuery = em.createNativeQuery(
-          "SELECT p.position_name_de FROM employee_assignments a JOIN positions p ON a.position_id = p.position_id WHERE a.employee_id = :eid LIMIT 1"
-        ).setParameter("eid", s.employeeId).getResultList();
-        if (!pQuery.isEmpty()) {
-          posName = pQuery.get(0).toString();
-        }
-      } catch (Exception ignored) {}
+      String posName = access.assignments(s.employeeId, localStart.toLocalDate()).stream()
+        .filter(a -> s.branchId.equals(a.branchId) && a.positionId != null)
+        .map(a -> em.find(PositionEntity.class, a.positionId)).filter(Objects::nonNull)
+        .map(p -> p.positionNameDe).findFirst().orElse(null);
 
       result.add(new ShiftDto(
         s.shiftId,
@@ -131,7 +132,16 @@ public class SchedulingService {
     return result;
   }
 
-  public ShiftScheduleEntity createShift(Long branchId, Long employeeId, Long templateId, Instant startUtc, Instant endUtc, Integer breakMinutes) {
+  public ShiftScheduleEntity createShift(String branchId, Long employeeId, Long templateId, Instant startUtc, Instant endUtc, Integer breakMinutes) {
+    if (employeeId == null || em.find(EmployeeEntity.class, employeeId, LockModeType.PESSIMISTIC_WRITE) == null)
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nhân viên không hợp lệ.");
+    ensureAvailable(employeeId, startUtc, endUtc);
+    if (templateId != null) {
+      var template = em.find(ShiftTemplateEntity.class, templateId);
+      if (template == null || !branchId.equals(template.branchId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mẫu ca không thuộc chi nhánh.");
+    }
+    if (breakMinutes != null && (breakMinutes < 0 || breakMinutes >= java.time.Duration.between(startUtc, endUtc).toMinutes()))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thời lượng nghỉ không hợp lệ.");
     if (endUtc.isBefore(startUtc) || endUtc.equals(startUtc)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Giờ kết thúc ca phải sau giờ bắt đầu.");
     }
@@ -153,7 +163,7 @@ public class SchedulingService {
 
     // Check consecutive rest intervals with adjacent shifts
     List<ShiftScheduleEntity> adjacentShifts = em.createQuery(
-      "SELECT s FROM ShiftScheduleEntity s WHERE s.employeeId = :e AND s.status != 'CANCELLED' AND s.plannedStartUtc >= :prior AND s.plannedEndUtc <= :post",
+      "SELECT s FROM ShiftScheduleEntity s WHERE s.employeeId = :e AND s.status in ('DRAFT','PUBLISHED') AND s.plannedStartUtc >= :prior AND s.plannedEndUtc <= :post",
       ShiftScheduleEntity.class
     )
     .setParameter("e", employeeId)
@@ -176,13 +186,15 @@ public class SchedulingService {
   }
 
   public void deleteShift(Long shiftId) {
-    ShiftScheduleEntity s = em.find(ShiftScheduleEntity.class, shiftId);
-    if (s != null) {
-      em.remove(s);
-    }
+    ShiftScheduleEntity s = em.find(ShiftScheduleEntity.class, shiftId, LockModeType.PESSIMISTIC_WRITE);
+    if (s == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    if (!"DRAFT".equals(s.status)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Chỉ có thể xóa ca nháp.");
+    em.remove(s);
   }
 
-  public PublishResult publishSchedule(Long branchId, Instant startUtc, Instant endUtc, Long publishedByUserId, String changeReason) {
+  public PublishResult publishSchedule(String branchId, Instant startUtc, Instant endUtc, String publishedByUserId, String changeReason) {
+    if (!endUtc.isAfter(startUtc)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Khoảng lịch không hợp lệ.");
+    em.find(Domain.Branch.class, branchId, LockModeType.PESSIMISTIC_WRITE);
     // 1. Run full German labor law validation
     LaborLawChecker.CheckSummary summary = lawChecker.validateSchedule(branchId, startUtc, endUtc);
     if (!summary.validForPublish()) {
@@ -216,17 +228,7 @@ public class SchedulingService {
       if (s.versionNumber > maxVersion) maxVersion = s.versionNumber;
       affectedEmployees.add(s.employeeId);
 
-      // If shift is on Sunday or Holiday, record compensatory rest day requirement under ArbZG §11
-      ZonedDateTime localStart = s.plannedStartUtc.atZone(ZoneId.of("Europe/Berlin"));
-      if (localStart.getDayOfWeek() == java.time.DayOfWeek.SUNDAY) {
-        CompensatoryRestDayEntity rest = new CompensatoryRestDayEntity();
-        rest.employeeId = s.employeeId;
-        rest.relatedWorkDate = localStart.toLocalDate();
-        rest.restKind = "SUNDAY_COMPENSATION";
-        rest.status = "PENDING";
-        rest.policyReference = "ArbZG §11 Abs. 3 (Nghỉ bù trong 2 tuần)";
-        em.persist(rest);
-      }
+
     }
 
     // 3. Send notifications to affected employees
@@ -261,8 +263,15 @@ public class SchedulingService {
     if (shift == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy ca làm việc cần đổi.");
     }
-    if (!shift.employeeId.equals(requestingEmployeeId)) {
+    if (!"PUBLISHED".equals(shift.status) || !shift.employeeId.equals(requestingEmployeeId) || Objects.equals(targetEmployeeId, requestingEmployeeId)) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn chỉ có thể yêu cầu đổi ca của chính mình.");
+    }
+    long pendingCount = em.createQuery(
+      "SELECT COUNT(r) FROM ShiftSwapRequestEntity r WHERE r.sourceShiftId = :s AND r.status = 'PENDING'",
+      Long.class
+    ).setParameter("s", sourceShiftId).getSingleResult();
+    if (pendingCount > 0) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Ca làm việc này đang có yêu cầu đổi ca chờ duyệt.");
     }
 
     ShiftSwapRequestEntity req = new ShiftSwapRequestEntity();
@@ -286,25 +295,28 @@ public class SchedulingService {
     return req;
   }
 
-  public void approveSwap(Long swapRequestId, Long managerUserId, String decisionReason) {
-    ShiftSwapRequestEntity req = em.find(ShiftSwapRequestEntity.class, swapRequestId);
+  public void approveSwap(Long swapRequestId, String managerUserId, String decisionReason) {
+    ShiftSwapRequestEntity req = em.find(ShiftSwapRequestEntity.class, swapRequestId, LockModeType.PESSIMISTIC_WRITE);
     if (req == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy yêu cầu đổi ca.");
     if (!"PENDING".equals(req.status)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Yêu cầu đổi ca không ở trạng thái chờ duyệt.");
 
     // Lock source shift with PESSIMISTIC_WRITE to prevent race condition / double swaps
     ShiftScheduleEntity shift = em.find(ShiftScheduleEntity.class, req.sourceShiftId, LockModeType.PESSIMISTIC_WRITE);
-    if (shift == null || !"PUBLISHED".equals(shift.status) && !"DRAFT".equals(shift.status)) {
+    if (shift == null || !"PUBLISHED".equals(shift.status) || !shift.employeeId.equals(req.requestedByEmployeeId)
+      || !access.assignedTo(req.targetEmployeeId, shift.branchId, shift.plannedStartUtc.atZone(ZoneId.of("Europe/Berlin")).toLocalDate())) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Ca làm việc không còn khả dụng để đổi.");
     }
 
     // Verify German labor law for target employee with this new shift!
-    EmployeeEntity targetEmp = em.find(EmployeeEntity.class, req.targetEmployeeId);
+    EmployeeEntity targetEmp = em.find(EmployeeEntity.class, req.targetEmployeeId, LockModeType.PESSIMISTIC_WRITE);
+    if (targetEmp == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "Không tìm thấy nhân viên nhận ca.");
+    ensureAvailable(req.targetEmployeeId, shift.plannedStartUtc, shift.plannedEndUtc);
     List<LaborLawChecker.Violation> violations = new ArrayList<>();
     lawChecker.validateSingleShift(shift, targetEmp, violations);
 
     // Check adjacent rest period for target employee
     List<ShiftScheduleEntity> adjacentShifts = em.createQuery(
-      "SELECT s FROM ShiftScheduleEntity s WHERE s.employeeId = :e AND s.status != 'CANCELLED' AND s.plannedStartUtc >= :prior AND s.plannedEndUtc <= :post",
+      "SELECT s FROM ShiftScheduleEntity s WHERE s.employeeId = :e AND s.status IN ('DRAFT','PUBLISHED') AND s.plannedStartUtc >= :prior AND s.plannedEndUtc <= :post",
       ShiftScheduleEntity.class
     )
     .setParameter("e", req.targetEmployeeId)
@@ -349,10 +361,11 @@ public class SchedulingService {
     em.persist(n2);
   }
 
-  public void rejectSwap(Long swapRequestId, Long managerUserId, String decisionReason) {
-    ShiftSwapRequestEntity req = em.find(ShiftSwapRequestEntity.class, swapRequestId);
+  public void rejectSwap(Long swapRequestId, String managerUserId, String decisionReason) {
+    ShiftSwapRequestEntity req = em.find(ShiftSwapRequestEntity.class, swapRequestId, LockModeType.PESSIMISTIC_WRITE);
     if (req == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy yêu cầu đổi ca.");
 
+    if (!"PENDING".equals(req.status)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Yêu cầu đã được xử lý.");
     req.status = "REJECTED";
     req.reviewedByUserId = managerUserId;
 
@@ -364,9 +377,65 @@ public class SchedulingService {
     em.persist(n);
   }
 
-  public List<ShiftSwapRequestEntity> listSwapRequests(Long branchId) {
-    return em.createQuery("SELECT r FROM ShiftSwapRequestEntity r ORDER BY r.createdAtUtc DESC", ShiftSwapRequestEntity.class)
-      .setMaxResults(50)
-      .getResultList();
+  private void ensureAvailable(Long employee, Instant start, Instant end) {
+    LocalDate from = start.atZone(ZoneId.of("Europe/Berlin")).toLocalDate();
+    LocalDate to = end.minusNanos(1).atZone(ZoneId.of("Europe/Berlin")).toLocalDate();
+    long approvedLeave = em.createQuery("""
+      select count(r) from LeaveRequestEntity r where r.employeeId=:employee and r.status='APPROVED'
+      and r.startDate<=:to and r.endDate>=:from
+      """, Long.class).setParameter("employee", employee)
+      .setParameter("from", from).setParameter("to", to).getSingleResult();
+    long sickLeave = em.createQuery("""
+      select count(a) from SicknessAbsenceEntity a where a.employeeId=:employee and a.verificationStatus<>'REJECTED'
+      and a.startDate<=:to and a.endDate>=:from
+      """, Long.class).setParameter("employee", employee)
+      .setParameter("from", from).setParameter("to", to).getSingleResult();
+    if (approvedLeave + sickLeave > 0) throw new ResponseStatusException(HttpStatus.CONFLICT, "Nhân viên có lịch nghỉ trùng ca.");
+  }
+
+  public record SwapRequestDto(
+    Long swapRequestId,
+    Long sourceShiftId,
+    Long targetEmployeeId,
+    String targetEmployeeName,
+    Long requestedByEmployeeId,
+    String requestedByEmployeeName,
+    String reason,
+    String status,
+    String reviewedByUserId,
+    Instant createdAtUtc
+  ) {}
+
+  public List<SwapRequestDto> listSwapRequests(String branchId, Long employee) {
+    List<ShiftSwapRequestEntity> list = em.createQuery("""
+      select r from ShiftSwapRequestEntity r, ShiftScheduleEntity s where r.sourceShiftId=s.shiftId
+      and (:branch is null or s.branchId=:branch)
+      and (:employee is null or r.requestedByEmployeeId=:employee or r.targetEmployeeId=:employee)
+      order by r.createdAtUtc desc
+      """, ShiftSwapRequestEntity.class).setParameter("branch", branchId)
+      .setParameter("employee", employee).setMaxResults(50).getResultList();
+    Map<Long, String> names = new HashMap<>();
+    return list.stream().map(r -> {
+      String targetName = names.computeIfAbsent(r.targetEmployeeId, id -> {
+        EmployeeEntity e = em.find(EmployeeEntity.class, id);
+        return e != null ? e.displayName : null;
+      });
+      String requesterName = names.computeIfAbsent(r.requestedByEmployeeId, id -> {
+        EmployeeEntity e = em.find(EmployeeEntity.class, id);
+        return e != null ? e.displayName : null;
+      });
+      return new SwapRequestDto(
+        r.swapRequestId,
+        r.sourceShiftId,
+        r.targetEmployeeId,
+        targetName,
+        r.requestedByEmployeeId,
+        requesterName,
+        r.reason,
+        r.status,
+        r.reviewedByUserId,
+        r.createdAtUtc
+      );
+    }).toList();
   }
 }

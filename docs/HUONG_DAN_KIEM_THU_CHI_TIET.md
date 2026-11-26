@@ -1,4 +1,6 @@
 # TÀI LIỆU HƯỚNG DẪN KIỂM THỬ TOÀN DIỆN HỆ THỐNG ATELIER (DT06)
+
+> Tài liệu kịch bản lịch sử. Cách chạy, tài khoản demo và quyền hiện hành được mô tả trong [README](../README.md).
 ## Phân hệ Quản trị, Nhân sự, Lịch ca, Chấm công, Đối soát, Nghỉ phép & Phụ cấp SFN (F00 → F07)
 ### Tuân thủ Luật Lao động & Luật Thuế CHLB Đức: ArbZG, MiLoG, MuSchG, JArbSchG, BUrlG, EntgFG, §3b EStG, SvEV & Phân tách nhiệm vụ SoD
 
@@ -45,7 +47,7 @@ net start MySQL80
 > Database mặc định được cấu hình trong `backend/src/main/resources/application.properties`:
 > - Tên database: `restaurant_hr_payroll_management`
 > - Tài khoản: `root`
-> - Mật khẩu: `Vomy1011@`
+> - Mật khẩu: `DB_PASSWORD`
 
 ---
 
@@ -109,13 +111,13 @@ net start MySQL80
 
 Mỗi chức năng trong hệ thống được thiết kế theo đúng quy chuẩn phân quyền (RBAC) và phân tách nhiệm vụ (Segregation of Duties - SoD). **Bảng phân vai kiểm thử chuẩn xác:**
 
-| STT | Họ và tên | Email đăng nhập | Mật khẩu chung | Vị trí công tác (Role) | Chức năng kiểm thử đảm nhận |
-| :---: | :--- | :--- | :--- | :--- | :--- |
-| **1** | **Administrator** | `admin@restaurant.example` | `Atelier!2026Demo` | **Quản trị viên / Cấp duyệt HR**<br>`SYSTEM_ADMIN, HR_OFFICER, RESTAURANT_MANAGER` | • Quản trị hệ thống, Chi nhánh, Pháp nhân, Phân quyền (F00, F01)<br>• Cấp duyệt độc lập giải quyết SoD cho Quản lý Tobias (F05, F06)<br>• Phê duyệt đơn sửa giờ leo thang > 60 phút (US-026)<br>• Khóa kỳ chấm công chi nhánh (US-028)<br>• Báo cáo tổng hợp phụ cấp SFN & Tra cứu kiểm toán toàn chi nhánh (F07) |
-| **2** | **Tobias Hoffmann** | `tobias.hoffmann@restaurant.example` | `Atelier!2026Demo` | **Quản lý Nhà hàng**<br>`RESTAURANT_MANAGER` | • Quản lý hồ sơ nhân sự, hợp đồng lương tối thiểu MiLoG (F02)<br>• Nhập liệu hàng loạt nhân sự qua file CSV (F02)<br>• Lập lịch ca tuần, kiểm tra tuân thủ luật ArbZG (F03)<br>• Phê duyệt đổi ca, xóa ca có xác nhận lý do (F03)<br>• Bổ sung giờ công thủ công có lý do (F04)<br>• Đối soát bảng công 3 trục, duyệt đơn sửa giờ ≤ 60 phút (F05)<br>• **Bị hệ thống chặn tự duyệt cho chính mình theo luật SoD (F05, F06)**<br>• Phê duyệt đơn nghỉ phép của nhân viên & quản lý hạn nghỉ bù ArbZG §11 (F06)<br>• Tính toán & xem phân đoạn phụ cấp ca đêm, chủ nhật, lễ (F07) |
-| **3** | **Anna Müller** | `anna.mueller@restaurant.example` | `Atelier!2026Demo` | **Nhân viên Phục vụ bàn**<br>`EMPLOYEE` | • Chấm công trực tiếp Check-in, Check-out, Giờ nghỉ thực tế (F04)<br>• Xem bảng timesheet cá nhân, phát hiện đi muộn / về sớm (F04)<br>• Gửi đơn xin sửa giờ thực tế ≤ 60m và > 60m kèm lý do (F05)<br>• Tham gia sàn đổi ca trực (Shift Swap Center) (F03)<br>• Xem số dư phép năm BUrlG và nộp đơn xin nghỉ phép năm (F06)<br>• Xem phụ cấp ca đêm thường 25% và đêm sâu 40% của bản thân (F07) |
-| **4** | **Markus Weber** | `markus.weber@restaurant.example` | `Atelier!2026Demo` | **Đầu bếp chính**<br>`EMPLOYEE` | • Chấm công ca gãy, ca đêm, ca Chủ nhật / Ngày lễ (F04, F07)<br>• Được ghi nhận nghỉ ốm eAU theo luật EntgFG (F06)<br>• Được phát sinh nghĩa vụ nghỉ bù 14 ngày (Chủ nhật) & 56 ngày (Ngày lễ) theo § 11 ArbZG (F06)<br>• Hưởng phụ cấp ca đêm (25%/40%), Chủ nhật (50%), Ngày lễ (100%-150%) và kiểm tra trần miễn thuế 50€ §3b EStG (F07) |
-| **5** | **Sophie Fischer** | `sophie.fischer@restaurant.example` | `Atelier!2026Demo` | **Nhân viên Phụ bếp**<br>`EMPLOYEE` | • Đối tượng được bảo vệ theo **Luật Thai sản (MuSchG)**<br>• Kiểm tra hệ thống tự động cấm xếp ca đêm (20h - 6h) và cấm làm thêm giờ (F02, F03)<br>• Chấm công tuân thủ giờ làm ban ngày (F04) |
+| STT | Họ và tên | Email đăng nhập | Vị trí công tác (Role) | Chức năng kiểm thử đảm nhận |
+| :---: | :--- | :--- | :--- | :--- |
+| **1** | **Administrator** | `admin@restaurant.example` | **Quản trị viên / Cấp duyệt HR**<br>`SYSTEM_ADMIN, HR_OFFICER, RESTAURANT_MANAGER` | • Quản trị hệ thống, Chi nhánh, Pháp nhân, Phân quyền (F00, F01)<br>• Cấp duyệt độc lập giải quyết SoD cho Quản lý Tobias (F05, F06)<br>• Phê duyệt đơn sửa giờ leo thang > 60 phút (US-026)<br>• Khóa kỳ chấm công chi nhánh (US-028)<br>• Báo cáo tổng hợp phụ cấp SFN & Tra cứu kiểm toán toàn chi nhánh (F07) |
+| **2** | **Tobias Hoffmann** | `tobias.hoffmann@restaurant.example` | **Quản lý Nhà hàng**<br>`RESTAURANT_MANAGER` | • Quản lý hồ sơ nhân sự, hợp đồng lương tối thiểu MiLoG (F02)<br>• Nhập liệu hàng loạt nhân sự qua file CSV (F02)<br>• Lập lịch ca tuần, kiểm tra tuân thủ luật ArbZG (F03)<br>• Phê duyệt đổi ca, xóa ca có xác nhận lý do (F03)<br>• Bổ sung giờ công thủ công có lý do (F04)<br>• Đối soát bảng công 3 trục, duyệt đơn sửa giờ ≤ 60 phút (F05)<br>• **Bị hệ thống chặn tự duyệt cho chính mình theo luật SoD (F05, F06)**<br>• Phê duyệt đơn nghỉ phép của nhân viên & quản lý hạn nghỉ bù ArbZG §11 (F06)<br>• Tính toán & xem phân đoạn phụ cấp ca đêm, chủ nhật, lễ (F07) |
+| **3** | **Anna Müller** | `anna.mueller@restaurant.example` | **Nhân viên Phục vụ bàn**<br>`EMPLOYEE` | • Chấm công trực tiếp Check-in, Check-out, Giờ nghỉ thực tế (F04)<br>• Xem bảng timesheet cá nhân, phát hiện đi muộn / về sớm (F04)<br>• Gửi đơn xin sửa giờ thực tế ≤ 60m và > 60m kèm lý do (F05)<br>• Tham gia sàn đổi ca trực (Shift Swap Center) (F03)<br>• Xem số dư phép năm BUrlG và nộp đơn xin nghỉ phép năm (F06)<br>• Xem phụ cấp ca đêm thường 25% và đêm sâu 40% của bản thân (F07) |
+| **4** | **Markus Weber** | `markus.weber@restaurant.example` | **Đầu bếp chính**<br>`EMPLOYEE` | • Chấm công ca gãy, ca đêm, ca Chủ nhật / Ngày lễ (F04, F07)<br>• Được ghi nhận nghỉ ốm eAU theo luật EntgFG (F06)<br>• Được phát sinh nghĩa vụ nghỉ bù 14 ngày (Chủ nhật) & 56 ngày (Ngày lễ) theo § 11 ArbZG (F06)<br>• Hưởng phụ cấp ca đêm (25%/40%), Chủ nhật (50%), Ngày lễ (100%-150%) và kiểm tra trần miễn thuế 50€ §3b EStG (F07) |
+| **5** | **Sophie Fischer** | `sophie.fischer@restaurant.example` | **Nhân viên Phụ bếp**<br>`EMPLOYEE` | • Đối tượng được bảo vệ theo **Luật Thai sản (MuSchG)**<br>• Kiểm tra hệ thống tự động cấm xếp ca đêm (20h - 6h) và cấm làm thêm giờ (F02, F03)<br>• Chấm công tuân thủ giờ làm ban ngày (F04) |
 
 ---
 

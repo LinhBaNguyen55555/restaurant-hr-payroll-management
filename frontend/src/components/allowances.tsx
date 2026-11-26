@@ -1,11 +1,11 @@
+import { useNotice } from "../lib/notice";
+import { Modal } from "./experience";
 import { useEffect, useState } from "react";
 import {
   Coins,
-  Calculator,
   ShieldCheck,
   Calendar,
   Sparkles,
-  Info,
   RefreshCw,
   AlertTriangle,
   Receipt,
@@ -21,25 +21,30 @@ import {
   type Branch,
 } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { addCalendarDays, berlinDate } from "../lib/work-time";
 
 export function AllowancesView({ branches }: { branches: Branch[] }) {
   const { lang } = useI18n();
-  const [selectedBranchId, setSelectedBranchId] = useState<number>(
-    branches.length > 0 ? Number(branches[0].id) : 1
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(
+    branches[0]?.id ?? ""
   );
+  const [fromDate, setFromDate] = useState(() => addCalendarDays(berlinDate(), -30));
+  const [toDate, setToDate] = useState(berlinDate);
+  const year = Number(toDate.slice(0, 4));
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<BranchAllowanceSummary | null>(null);
   const [holidays, setHolidays] = useState<PublicHoliday[]>([]);
   const [showHolidaysModal, setShowHolidaysModal] = useState(false);
   const [selectedTimesheet, setSelectedTimesheet] = useState<TimesheetAllowanceBreakdown | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const setToast = useNotice();
 
   const loadSummary = async () => {
+    if (!selectedBranchId || !fromDate || !toDate || fromDate > toDate) return;
     setLoading(true);
     try {
       const [sum, hList] = await Promise.all([
-        getBranchAllowanceSummary(selectedBranchId),
-        getPublicHolidays(selectedBranchId, 2026),
+        getBranchAllowanceSummary(selectedBranchId, fromDate, toDate),
+        getPublicHolidays(selectedBranchId, year),
       ]);
       setSummary(sum);
       setHolidays(hList);
@@ -52,7 +57,7 @@ export function AllowancesView({ branches }: { branches: Branch[] }) {
 
   useEffect(() => {
     loadSummary();
-  }, [selectedBranchId]);
+  }, [selectedBranchId, fromDate, toDate]);
 
   const handleRecalculate = async (timesheetId: number) => {
     try {
@@ -67,33 +72,19 @@ export function AllowancesView({ branches }: { branches: Branch[] }) {
 
   return (
     <div className="space-y-6">
-      {/* Toast Notification */}
-      {toast && (
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-neutral-900 text-white px-4 py-3 rounded-lg shadow-xl border border-neutral-700 animate-fade-in">
-          <Info size={18} className="text-emerald-400" />
-          <span>{toast}</span>
-          <button onClick={() => setToast(null)} className="ml-2 text-neutral-400 hover:text-white">✕</button>
-        </div>
-      )}
 
+      <div className="flex flex-wrap gap-3 text-sm">
+        <label>{lang === "vi" ? "Từ ngày" : "Von"} <input type="date" value={fromDate} max={toDate} onChange={(e) => setFromDate(e.target.value)} /></label>
+        <label>{lang === "vi" ? "Đến ngày" : "Bis"} <input type="date" value={toDate} min={fromDate} onChange={(e) => setToDate(e.target.value)} /></label>
+      </div>
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-neutral-200 dark:border-neutral-800 pb-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-            <Coins className="text-amber-500" />
-            {lang === "vi" ? "Phụ cấp SFN & Ngày lễ (F07)" : "SFN-Zuschläge & Feiertagsarbeit (F07)"}
-          </h1>
-          <p className="text-sm text-neutral-500 mt-1">
-            {lang === "vi"
-              ? "Tính phụ cấp Đêm, Chủ nhật, Ngày lễ theo §3b EStG và giới hạn miễn BHXH theo SvEV"
-              : "Rechtskonforme Berechnung von Sonntags-, Feiertags- & Nachtzuschlägen nach § 3b EStG / SvEV"}
-          </p>
-        </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <select
+            aria-label={lang === "vi" ? "Chi nhánh" : "Niederlassung"}
             value={selectedBranchId}
-            onChange={(e) => setSelectedBranchId(Number(e.target.value))}
+            onChange={(e) => setSelectedBranchId(e.target.value)}
             className="px-3 py-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg text-sm font-medium"
           >
             {branches.map((b) => (
@@ -108,7 +99,7 @@ export function AllowancesView({ branches }: { branches: Branch[] }) {
             className="flex items-center gap-1.5 px-3 py-2 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg text-sm font-medium transition"
           >
             <Calendar size={16} />
-            {lang === "vi" ? "Lịch 12 ngày lễ BW" : "Feiertagskalender (BW)"}
+            {lang === "vi" ? "Lịch ngày lễ" : "Feiertagskalender"}
           </button>
 
           <button
@@ -212,60 +203,62 @@ export function AllowancesView({ branches }: { branches: Branch[] }) {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-neutral-50 dark:bg-neutral-800/50 text-neutral-500 text-xs uppercase tracking-wider">
+          <table className="w-full">
+            <thead className="bg-neutral-50 dark:bg-neutral-800/50 text-neutral-500">
               <tr>
-                <th className="px-5 py-3">{lang === "vi" ? "Mã ca" : "Schicht-ID"}</th>
-                <th className="px-5 py-3">{lang === "vi" ? "Nhân viên" : "Mitarbeiter"}</th>
-                <th className="px-5 py-3">{lang === "vi" ? "Ngày làm" : "Datum"}</th>
-                <th className="px-5 py-3">{lang === "vi" ? "Giờ thực tế" : "Ist-Zeit"}</th>
-                <th className="px-5 py-3 text-right">{lang === "vi" ? "Lương cơ sở" : "Grundlohn"}</th>
-                <th className="px-5 py-3 text-right font-bold text-amber-600">{lang === "vi" ? "Phụ cấp trả" : "Zuschlag"}</th>
-                <th className="px-5 py-3 text-right text-emerald-600">{lang === "vi" ? "Miễn thuế §3b" : "Steuerfrei"}</th>
-                <th className="px-5 py-3 text-right text-blue-600">{lang === "vi" ? "Miễn BH SvEV" : "SV-Frei"}</th>
-                <th className="px-5 py-3 text-right">{lang === "vi" ? "Thao tác" : "Aktionen"}</th>
+                <th scope="col" className="px-5 py-3">{lang === "vi" ? "Mã ca" : "Schicht-ID"}</th>
+                <th scope="col" className="px-5 py-3">{lang === "vi" ? "Nhân viên" : "Mitarbeiter"}</th>
+                <th scope="col" className="px-5 py-3">{lang === "vi" ? "Ngày làm" : "Datum"}</th>
+                <th scope="col" className="px-5 py-3">{lang === "vi" ? "Giờ thực tế" : "Ist-Zeit"}</th>
+                <th scope="col" className="px-5 py-3">{lang === "vi" ? "Lương cơ sở" : "Grundlohn"}</th>
+                <th scope="col" className="px-5 py-3 font-bold text-amber-600">{lang === "vi" ? "Phụ cấp trả" : "Zuschlag"}</th>
+                <th scope="col" className="px-5 py-3 text-emerald-600">{lang === "vi" ? "Miễn thuế §3b" : "Steuerfrei"}</th>
+                <th scope="col" className="px-5 py-3 text-blue-600">{lang === "vi" ? "Miễn BH SvEV" : "SV-Frei"}</th>
+                <th scope="col" className="px-5 py-3">{lang === "vi" ? "Thao tác" : "Aktionen"}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
               {!summary || summary.timesheets.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-5 py-8 text-center text-neutral-500">
+                  <td colSpan={9} className="px-5 py-8 text-neutral-500">
                     {lang === "vi" ? "Chưa có ca làm việc nào phát sinh phụ cấp trong kỳ" : "Keine zuschlagspflichtigen Schichten im gewählten Zeitraum"}
                   </td>
                 </tr>
               ) : (
                 summary.timesheets.map((ts) => (
                   <tr key={ts.timesheetId} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/40">
-                    <td className="px-5 py-3 font-mono text-xs">#{ts.timesheetId}</td>
+                    <td className="px-5 py-3">#{ts.timesheetId}</td>
                     <td className="px-5 py-3">
-                      <span className="font-medium text-neutral-900 dark:text-neutral-100">{ts.employeeName}</span>
-                      <span className="block text-xs text-neutral-400">{ts.employeeCode}</span>
+                      <span className="table-prose font-medium text-neutral-900 dark:text-neutral-100">{ts.employeeName}</span>
+                      <span className="block text-neutral-400">{ts.employeeCode}</span>
                     </td>
-                    <td className="px-5 py-3 text-xs">{ts.workDate}</td>
-                    <td className="px-5 py-3 text-xs font-mono">
-                      {ts.actualStartBerlin} ➔ {ts.actualEndBerlin}
+                    <td className="px-5 py-3">{ts.workDate}</td>
+                    <td className="px-5 py-3">
+                      {ts.actualStartBerlin.slice(11, 16)} ➔ {ts.actualEndBerlin.slice(11, 16)}
+                      {ts.calculationIssue && <span className="table-prose text-rose-700 dark:text-rose-300">{ts.calculationIssue}</span>}
                     </td>
-                    <td className="px-5 py-3 text-right text-xs">
+                    <td className="px-5 py-3">
                       {Number(ts.baseWageEur).toFixed(2)} €/h
                     </td>
-                    <td className="px-5 py-3 text-right font-bold text-amber-600 dark:text-amber-400">
+                    <td className="px-5 py-3 font-bold text-amber-600 dark:text-amber-400">
                       {Number(ts.totalPaidAmountEur).toFixed(2)} €
                     </td>
-                    <td className="px-5 py-3 text-right text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                    <td className="px-5 py-3 text-emerald-600 dark:text-emerald-400 font-medium">
                       {Number(ts.totalTaxExemptAmountEur).toFixed(2)} €
                     </td>
-                    <td className="px-5 py-3 text-right text-xs text-blue-600 dark:text-blue-400 font-medium">
+                    <td className="px-5 py-3 text-blue-600 dark:text-blue-400 font-medium">
                       {Number(ts.totalSvExemptAmountEur).toFixed(2)} €
                     </td>
-                    <td className="px-5 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => setSelectedTimesheet(ts)}
-                          className="px-2.5 py-1 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 rounded text-xs font-medium transition"
+                          className="px-2.5 py-1 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 rounded font-medium transition"
                         >
                           {lang === "vi" ? "Xem phân đoạn" : "Segmente"}
                         </button>
                         <button
+                          disabled={ts.locked || Boolean(ts.calculationIssue)}
                           onClick={() => handleRecalculate(ts.timesheetId)}
                           className="p-1 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition"
                           title={lang === "vi" ? "Tái tính toán" : "Neu berechnen"}
@@ -284,25 +277,8 @@ export function AllowancesView({ branches }: { branches: Branch[] }) {
 
       {/* Modal: Segment Breakdown & Audit Trace */}
       {selectedTimesheet && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 max-w-3xl w-full p-6 shadow-2xl space-y-4 animate-scale-up max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-start border-b border-neutral-200 dark:border-neutral-800 pb-3">
-              <div>
-                <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-                  <Calculator className="text-amber-500" />
-                  {lang === "vi" ? "Phân tích phân đoạn & Kiểm toán Trace (F07.07)" : "Segment-Analyse & Audit-Trace"}
-                </h3>
-                <p className="text-xs text-neutral-500 mt-0.5">
-                  {selectedTimesheet.employeeName} ({selectedTimesheet.employeeCode}) · {selectedTimesheet.workDate} ({selectedTimesheet.actualStartBerlin} ➔ {selectedTimesheet.actualEndBerlin})
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedTimesheet(null)}
-                className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
-              >
-                ✕
-              </button>
-            </div>
+        <Modal open wide title={lang === "vi" ? "Chi tiết phụ cấp ca" : "Zuschläge je Schicht"} description={selectedTimesheet.employeeName + " · " + selectedTimesheet.workDate} onClose={() => setSelectedTimesheet(null)}>
+          <div className="modal-body space-y-4">
 
             {/* Overview stats for this timesheet */}
             <div className="grid grid-cols-4 gap-2 text-center p-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-lg text-xs">
@@ -378,25 +354,13 @@ export function AllowancesView({ branches }: { branches: Branch[] }) {
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Modal: Baden-Württemberg Statutory Holidays Calendar */}
       {showHolidaysModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 max-w-lg w-full p-6 shadow-2xl space-y-4 animate-scale-up">
-            <div className="flex justify-between items-start border-b border-neutral-200 dark:border-neutral-800 pb-3">
-              <div>
-                <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-                  <Calendar className="text-emerald-600" />
-                  {lang === "vi" ? "Lịch ngày lễ chính thức Baden-Württemberg (2026)" : "Gesetzliche Feiertage Baden-Württemberg (2026)"}
-                </h3>
-                <p className="text-xs text-neutral-500 mt-0.5">
-                  {lang === "vi" ? "Theo Luật Ngày lễ bang BW (Feiertagsgesetz FTG)" : "Gemäß Feiertagsgesetz FTG Baden-Württemberg"}
-                </p>
-              </div>
-              <button onClick={() => setShowHolidaysModal(false)} className="text-neutral-400 hover:text-neutral-700">✕</button>
-            </div>
+        <Modal open wide title={(lang === "vi" ? "Lịch ngày lễ" : "Gesetzliche Feiertage") + " · " + year} description={branches.find(b => b.id === selectedBranchId)?.name} onClose={() => setShowHolidaysModal(false)}>
+          <div className="modal-body space-y-4">
 
             <div className="max-h-80 overflow-y-auto divide-y divide-neutral-200 dark:divide-neutral-800 text-xs">
               {holidays.map((h) => (
@@ -409,7 +373,7 @@ export function AllowancesView({ branches }: { branches: Branch[] }) {
                   </div>
                   <div className="text-right">
                     <span className="font-mono font-semibold text-neutral-800 dark:text-neutral-200">{h.holidayDate}</span>
-                    <span className="block text-[10px] text-emerald-600 font-medium">{lang === "vi" ? "Lễ luật định (100%)" : "Gesetzlich"}</span>
+                    <span className="block text-[10px] text-emerald-600 font-medium">{lang === "vi" ? "Ngày lễ luật định" : "Gesetzlich"}</span>
                   </div>
                 </div>
               ))}
@@ -419,8 +383,8 @@ export function AllowancesView({ branches }: { branches: Branch[] }) {
               <AlertTriangle size={16} className="shrink-0 mt-0.5" />
               <span>
                 {lang === "vi"
-                  ? "Phạm vi MVP vận hành chuẩn xác cho bang Baden-Württemberg (BW). Chi nhánh tại các bang khác nếu chưa cấu hình lịch lễ sẽ bị chặn tính phụ cấp chính thức để tránh sai lệch thuế."
-                  : "MVP unterstützt Baden-Württemberg (BW). Für andere Bundesländer müssen vorab die Feiertage hinterlegt werden."}
+                  ? "SFN sử dụng lịch lễ đã xác minh cho bang và năm tại địa điểm làm việc."
+                  : "SFN verwendet den geprüften Feiertagskalender für Bundesland und Jahr am Arbeitsort."}
               </span>
             </div>
 
@@ -433,7 +397,7 @@ export function AllowancesView({ branches }: { branches: Branch[] }) {
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

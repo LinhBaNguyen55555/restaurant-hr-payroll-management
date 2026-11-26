@@ -11,7 +11,6 @@ import {
   ShieldCheck,
   Search,
   Bell,
-  ChevronDown,
   ArrowUpRight,
   Plus,
   ArrowRight,
@@ -22,7 +21,6 @@ import {
   Globe2,
   Fingerprint,
   FileClock,
-  Pencil,
   CircleHelp,
   ChevronRight,
   Command,
@@ -30,7 +28,7 @@ import {
   Sun,
   Moon,
   ArrowLeftRight,
-  CheckCheck,
+  Info,
   AlertCircle,
   Calendar,
   Clock,
@@ -47,7 +45,7 @@ import {
   type User,
   type Workspace,
 } from "./lib/api";
-import { Empty, Loading, Modal, Press, Status } from "./components/experience";
+import { EditButton, Empty, Loading, Modal, Press, Status } from "./components/experience";
 import { Login, MfaGate } from "./components/auth";
 import {
   Overview,
@@ -67,6 +65,10 @@ import { AllowancesView } from "./components/allowances";
 import { EditorModal, type Editor } from "./components/editor";
 import { I18nProvider, useI18n, LanguageSwitcher } from "./lib/i18n";
 import "./App.css";
+import "./admin.css";
+import "./workspace.css";
+import { DutyHome, WorkspaceActions, workspaceKind, workspaceNames } from "./components/role-home";
+import { NoticeContext } from "./lib/notice";
 export type Page =
   | "overview"
   | "workforce"
@@ -127,6 +129,7 @@ const navDefinition: {
     deLabel: "SFN-Zuschläge & Feiertage",
     key: "nav.allowances",
     icon: Coins,
+    permission: "allowance.read",
   },
   {
     page: "branches",
@@ -165,6 +168,12 @@ const navDefinition: {
     permission: "audit.read",
   },
 ];
+const navigationGroups: { vi: string; de: string; pages: Page[] }[] = [
+  { vi: "Vận hành", de: "Betrieb", pages: ["overview", "scheduling", "attendance", "leave"] },
+  { vi: "Nhân sự & tổ chức", de: "Personal & Organisation", pages: ["workforce", "people", "branches", "entities"] },
+  { vi: "Giờ công & phụ cấp", de: "Arbeitszeit & Zuschläge", pages: ["reconciliation", "allowances"] },
+  { vi: "Quản trị hệ thống", de: "Systemverwaltung", pages: ["access", "activity", "security"] },
+];
 const fromHash = (): Page =>
   navDefinition.some((n) => n.page === location.hash.slice(1))
     ? (location.hash.slice(1) as Page)
@@ -196,6 +205,8 @@ function Application() {
   const [toast, setToast] = useState("");
   const [editor, setEditor] = useState<Editor | null>(null);
   const [branchId, setBranchId] = useState<string | null>(null);
+  const [dutyBranch, setDutyBranch] = useState("");
+  const [scheduleDay, setScheduleDay] = useState<string>();
   const [command, setCommand] = useState(false);
   const [query, setQuery] = useState("");
   const [help, setHelp] = useState(false);
@@ -270,6 +281,7 @@ function Application() {
     { scope: content, dependencies: [page, !!data], revertOnUpdate: true },
   );
   const navigate = (to: Page) => {
+    setScheduleDay(undefined);
     location.hash = to;
     setPage(to);
     setMobile(false);
@@ -306,6 +318,10 @@ function Application() {
       <Loading />
     );
   const selected = data.branches.find((b) => b.id === branchId);
+  const kind = workspaceKind(data);
+  const personal = kind === "employee" || kind === "kitchen";
+  const activeBranch = data.branches.some(b => b.id === dutyBranch) ? dutyBranch : data.branches[0]?.id ?? "";
+  const workspaceTitle = workspaceNames[kind][lang];
   const current = nav.find((n) => n.page === page)!;
   const allowed = !current.permission || has(current.permission);
   const date = new Intl.DateTimeFormat(lang === "vi" ? "vi-VN" : "de-DE", {
@@ -315,7 +331,7 @@ function Application() {
     timeZone: "Europe/Berlin",
   }).format(new Date());
   return (
-    <div className="app-shell">
+    <NoticeContext.Provider value={setToast}><div className={`app-shell workspace-shell workspace-${kind}`} data-screen={page}>
       {mobile && (
         <button
           className="mobile-backdrop"
@@ -323,7 +339,10 @@ function Application() {
           onClick={() => setMobile(false)}
         />
       )}
-      <aside className={`sidebar ${mobile ? "sidebar-open" : ""}`}>
+      <aside id="workspace-navigation" className={`sidebar ${mobile ? "sidebar-open" : ""}`}
+        onKeyDown={(event) => { if (event.key === "Escape") setMobile(false); }}>
+        {mobile && <button className="drawer-close" onClick={() => setMobile(false)}
+          aria-label={lang === "vi" ? "Đóng menu" : "Menü schließen"}><X size={18} /></button>}
         <a
           className="brand"
           href="#overview"
@@ -333,54 +352,29 @@ function Application() {
             a<span>.</span>
           </span>
           <div>
-            atelier<span>{lang === "vi" ? "NHÂN SỰ & CHI NHÁNH" : "PEOPLE & PLACES"}</span>
+            atelier<span>{workspaceTitle}</span>
           </div>
         </a>
-        <button className="workspace-selector" onClick={() => setHelp(true)}>
-          <span className="workspace-icon">
-            <Building2 size={17} />
-          </span>
-          <span>
-            <b>Atelier Gastronomie</b>
-            <small>{lang === "vi" ? "Hệ thống nhà hàng Đức" : "Deutschland Workspace"}</small>
-          </span>
-          <ChevronDown size={14} />
-        </button>
-        <div className="nav-caption">{t("nav.caption.workspace", "ARBEITSBEREICH")}</div>
-        <nav>
-          {nav
-            .slice(0, 4)
-            .filter((n) => !n.permission || has(n.permission))
-            .map((n) => (
-              <NavItem
-                key={n.page}
-                item={n}
-                page={page}
-                navigate={navigate}
-                count={n.page === "branches" ? data.branches.length : undefined}
-              />
-            ))}
-        </nav>
-        <div className="nav-caption nav-caption-second">{t("nav.caption.admin", "VERWALTUNG")}</div>
-        <nav>
-          {nav
-            .slice(4)
-            .filter((n) => !n.permission || has(n.permission))
-            .map((n) => (
-              <NavItem key={n.page} item={n} page={page} navigate={navigate} />
-            ))}
-        </nav>
+        <div className="admin-nav-groups">
+          {navigationGroups.map((group) => {
+            const items = nav.filter((item) =>
+              group.pages.includes(item.page) && (!item.permission || has(item.permission))
+            );
+            const label = items.length === 1 && items[0].page === "security"
+              ? (lang === "vi" ? "Tài khoản cá nhân" : "Mein Konto")
+              : group[lang];
+            return items.length > 0 && (
+              <nav key={group.de} aria-label={label}>
+                <div className="nav-caption">{label}</div>
+                {items.map((item) => (
+                  <NavItem key={item.page} item={item} page={page} navigate={navigate}
+                    count={item.page === "branches" ? data.branches.length : undefined} />
+                ))}
+              </nav>
+            );
+          })}
+        </div>
         <div className="sidebar-bottom">
-          <div className="security-card">
-            <div className="security-small-icon">
-              <ShieldCheck size={19} />
-            </div>
-            <b>{lang === "vi" ? "Môi trường bảo mật cho nhân sự." : "Ein guter Ort für Ihr Team."}</b>
-            <p>{lang === "vi" ? "Phân quyền và chi nhánh luôn trong tầm kiểm soát." : "Zugriffe und Standorte sicher im Blick."}</p>
-            <button onClick={() => navigate("security")}>
-              {lang === "vi" ? "Xem bảo mật" : "Sicherheit ansehen"} <ArrowUpRight size={14} />
-            </button>
-          </div>
           <button className="help-button" onClick={() => setHelp(true)}>
             <CircleHelp size={17} /> {lang === "vi" ? "Trợ giúp & Hướng dẫn" : "Hilfe & Orientierung"}{" "}
             <ArrowUpRight size={14} />
@@ -407,20 +401,22 @@ function Application() {
           <div className="breadcrumb">
             <button
               className="icon-button mobile-menu"
+              aria-controls="workspace-navigation"
+              aria-expanded={mobile}
               aria-label={t("ui.open_nav", "Navigation öffnen")}
               onClick={() => setMobile(true)}
             >
               <Menu size={20} />
             </button>
-            <span>{t("nav.caption.workspace", "Arbeitsbereich")}</span>
+            <span>{workspaceTitle}</span>
             <ChevronRight size={13} />
             <b>{current.label}</b>
           </div>
           <div className="topbar-actions">
-            <button className="search-trigger" onClick={() => setCommand(true)}>
+            <button className="search-trigger" aria-label={t("ui.search", "Suchen …")} onClick={() => setCommand(true)}>
               <Search size={16} />
               <span>{t("ui.search", "Suchen …")}</span>
-              <kbd>⌘ K</kbd>
+              <kbd>{/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ K" : "Ctrl K"}</kbd>
             </button>
             <span className="topbar-divider" />
             <LanguageSwitcher />
@@ -432,14 +428,14 @@ function Application() {
             >
               {dark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            <button
+            {has("audit.read") && <button
               className="icon-button notification-button"
               aria-label={t("ui.notifications", "Aktivitäten anzeigen")}
               onClick={() => setNotifications(true)}
             >
               <Bell size={18} />
               {data.audit.length > 0 && <i />}
-            </button>
+            </button>}
             <span className="avatar avatar-small avatar-peach">
               {initials(user.name)}
             </span>
@@ -457,42 +453,11 @@ function Application() {
           )}
           <div className="page-heading reveal">
             <div>
-              <div className="eyebrow">
-                ATELIER WORKSPACE <span /> {date}
-              </div>
-              <h1>
-                {page === "overview"
-                  ? `${lang === "vi" ? "Xin chào" : "Guten Tag"}, ${user.name.split(" ")[0]}.`
-                  : current.label}
-                <span className="title-dot">
-                  {page === "overview" ? " ✳" : ""}
-                </span>
-              </h1>
-              <p>
-                {t(`sub.${page}`, {
-                  overview: "Alles, was Ihr Team verbindet. An einem Ort.",
-                  workforce:
-                    "Mitarbeiterakten, Vertragsverlauf, Entgeltstufen und Schutzbedingungen verwalten.",
-                  scheduling:
-                    "Schichtvorlagen erstellen, Einsätze planen, ArbZG-Regeln prüfen und Dienstpläne veröffentlichen.",
-                  attendance:
-                    "Direkte Arbeitszeiterfassung, Pausen und Stempelzeiten nach ArbZG.",
-                  reconciliation:
-                    "Vergleich von Dienstplan und Ist-Zeiten, Genehmigungsworkflow und Korrekturanträge.",
-                  leave:
-                    "Urlaubsanspruch nach BUrlG, eAU-Krankmeldungen nach EntgFG und Ausgleichstage nach § 11 ArbZG.",
-                  allowances:
-                    "Sonntags-, Feiertags- & Nachtzuschläge nach § 3b EStG und Beitragsfreiheit nach SvEV.",
-                  branches:
-                    "Ihre Restaurants. Ihre Orte. Ein gemeinsames Zuhause.",
-                  entities: "Eine klare Struktur für Ihre Organisation.",
-                  people: "Menschen verbinden. Einsätze richtig zuordnen.",
-                  access:
-                    "Die richtigen Zugriffe für die richtigen Menschen.",
-                  security: "Ihr Konto. Ihre Geräte. Ihre Sicherheit.",
-                  activity: "Jede wichtige Änderung bleibt nachvollziehbar.",
-                }[page])}
-              </p>
+              <div className="admin-date"><CalendarDays size={14} />{date} · Berlin</div>
+              <h1>{page === "overview"
+                ? (kind === "admin" ? (lang === "vi" ? "Tổng quan quản trị" : "Verwaltungsübersicht") : workspaceTitle)
+                : current.label}</h1>
+              {page !== "overview" && <p>{t(`sub.${page}`, current.label)}</p>}
             </div>
             <div className="heading-actions">
               {page === "overview" && has("audit.read") && (
@@ -509,12 +474,12 @@ function Application() {
                     <Plus size={17} /> {t("btn.add_branch", "Niederlassung hinzufügen")}
                   </Press>
                 )}
-              {page === "entities" && has("iam.write") && (
+              {page === "entities" && has("org.write") && user.roles.includes("SYSTEM_ADMIN") && (
                 <Press onClick={() => setEditor({ kind: "entity" })}>
                   <Plus size={17} /> {t("btn.add_entity", "Rechtseinheit hinzufügen")}
                 </Press>
               )}
-              {page === "access" && (
+              {page === "access" && has("iam.write") && (
                 <Press onClick={() => setEditor({ kind: "user" })}>
                   <Plus size={17} /> {t("btn.add_user", "Konto anlegen")}
                 </Press>
@@ -533,11 +498,17 @@ function Application() {
             />
           ) : (
             <>
-              {page === "overview" && (
+              {page === "overview" && <WorkspaceActions data={data} navigate={navigate} />}
+              {page === "overview" && (personal || kind === "manager") && (
+                <DutyHome data={data} branchId={activeBranch} onBranch={setDutyBranch} navigate={navigate}
+                  openWeek={(day) => { navigate("scheduling"); setScheduleDay(day); }} />
+              )}
+              {page === "overview" && !personal && (
                 <Overview
                   data={data}
                   navigate={navigate}
                   onBranch={setBranchId}
+                  onEdit={(row) => setEditor({ kind: "branch", row })}
                 />
               )}
               {page === "branches" && (
@@ -564,7 +535,7 @@ function Application() {
                           <th>{lang === "vi" ? "Số ĐKKD" : "Registrierung"}</th>
                           <th>{lang === "vi" ? "Chi nhánh" : "Niederlassungen"}</th>
                           <th>{lang === "vi" ? "Trạng thái" : "Status"}</th>
-                          <th />
+                          {has("org.write") && <th>{lang === "vi" ? "Thao tác" : "Aktionen"}</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -595,19 +566,10 @@ function Application() {
                             <td>
                               <Status active={e.active} />
                             </td>
-                            <td>
-                              {has("org.write") && (
-                                <button
-                                  className="icon-button"
-                                  aria-label={`${e.name} bearbeiten`}
-                                  onClick={() =>
-                                    setEditor({ kind: "entity", row: e })
-                                  }
-                                >
-                                  <Pencil size={16} />
-                                </button>
-                              )}
-                            </td>
+                            {has("org.write") && <td>
+                              {(user.roles.includes("SYSTEM_ADMIN") || user.legalEntityIds.includes(e.id)) &&
+                                <EditButton name={e.name} onClick={() => setEditor({ kind: "entity", row: e })} />}
+                            </td>}
                           </tr>
                         ))}
                       </tbody>
@@ -626,19 +588,21 @@ function Application() {
                 </div>
               )}
               {page === "workforce" && (
-                <WorkforceView branches={data.branches} />
+                <WorkforceView branches={data.branches} canEdit={has("workforce.write")} />
               )}
               {page === "scheduling" && (
-                <SchedulingView branches={data.branches} />
+                <SchedulingView branches={data.branches} canManage={has("schedule.write")} selfEmployeeId={data.selfEmployeeId}
+                  selfPostings={data.selfPostings} selectedBranchId={activeBranch} setSelectedBranchId={setDutyBranch}
+                  initialDay={scheduleDay} />
               )}
               {page === "attendance" && (
-                <AttendanceView branches={data.branches} />
+                <AttendanceView branches={data.branches} canManage={has("schedule.write")} selfEmployeeId={data.selfEmployeeId} />
               )}
               {page === "reconciliation" && (
-                <ReconciliationView branches={data.branches} currentUserId={user?.id} />
+                <ReconciliationView branches={data.branches} currentUserId={user?.id} selfEmployeeId={data.selfEmployeeId} />
               )}
               {page === "leave" && (
-                <LeaveView branches={data.branches} currentUserId={user?.id} />
+                <LeaveView canReview={has("schedule.write")} canRecord={has("workforce.write")} canRequest={data.selfEmployeeId != null} />
               )}
               {page === "allowances" && (
                 <AllowancesView branches={data.branches} />
@@ -714,10 +678,10 @@ function Application() {
           editor={editor}
           data={data}
           onClose={() => setEditor(null)}
-          onSaved={async () => {
+          onSaved={async (message) => {
             setEditor(null);
             await load();
-            setToast(lang === "vi" ? "Đã lưu thay đổi thành công." : "Änderungen erfolgreich gespeichert.");
+            setToast(message);
           }}
         />
       )}
@@ -903,7 +867,7 @@ function Application() {
         </div>
       </Modal>
       <AnimatePresence>
-        {toast && (
+        {toast && !editor && (
           <motion.div
             role="status"
             className="toast"
@@ -912,15 +876,15 @@ function Application() {
             exit={{ opacity: 0, transition: { duration: 0.15 } }}
             transition={spring.toast}
           >
-            <CheckCheck size={18} />
+            <Info size={18} aria-hidden="true" />
             <span>{toast}</span>
-            <button aria-label="Meldung schließen" onClick={() => setToast("")}>
+            <button aria-label={lang === "vi" ? "Đóng thông báo" : "Meldung schließen"} onClick={() => setToast("")}>
               <X size={15} />
             </button>
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </div></NoticeContext.Provider>
   );
 }
 function NavItem({
@@ -943,7 +907,7 @@ function NavItem({
       <item.icon size={18} />
       <span>{item.label}</span>
       {count !== undefined && (
-        <small>{count.toString().padStart(2, "0")}</small>
+        <small>{count}</small>
       )}
       {page === item.page && (
         <motion.i

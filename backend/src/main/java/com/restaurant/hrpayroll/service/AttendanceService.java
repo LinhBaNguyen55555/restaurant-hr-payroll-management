@@ -4,6 +4,7 @@ import com.restaurant.hrpayroll.entity.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.time.*;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -15,9 +16,20 @@ import org.springframework.web.server.ResponseStatusException;
 public class AttendanceService {
 
   private static final ZoneId BERLIN_ZONE = ZoneId.of("Europe/Berlin");
+  private static final DateTimeFormatter BERLIN_TIME = DateTimeFormatter.ofPattern("HH:mm");
+
+  private static String berlinHHmm(Instant utc) {
+    return utc.atZone(BERLIN_ZONE).format(BERLIN_TIME);
+  }
 
   @PersistenceContext
   private EntityManager em;
+
+  private final Access access;
+
+  public AttendanceService(Access access) {
+    this.access = access;
+  }
 
   public record AttendanceStatusDto(
     boolean isCheckedIn,
@@ -58,7 +70,7 @@ public class AttendanceService {
     String employeeName,
     String employeeCode,
     String positionName,
-    Long branchId,
+    String branchId,
     Long shiftId,
     LocalDate workDate,
     Instant plannedStartUtc,
@@ -84,22 +96,15 @@ public class AttendanceService {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy hồ sơ nhân viên");
     }
 
-    LocalDate today = LocalDate.now(BERLIN_ZONE);
     List<AttendanceTimesheetEntity> openSheets = em.createQuery(
-      "SELECT t FROM AttendanceTimesheetEntity t WHERE t.employeeId = :e AND t.workDate = :d ORDER BY t.timesheetId DESC",
+      "SELECT t FROM AttendanceTimesheetEntity t WHERE t.employeeId = :e AND t.actualStartUtc IS NOT NULL AND t.actualEndUtc IS NULL ORDER BY t.timesheetId DESC",
       AttendanceTimesheetEntity.class
     )
     .setParameter("e", employeeId)
-    .setParameter("d", today)
+    .setMaxResults(1)
     .getResultList();
 
-    AttendanceTimesheetEntity activeTs = null;
-    for (AttendanceTimesheetEntity ts : openSheets) {
-      if (ts.actualStartUtc != null && ts.actualEndUtc == null) {
-        activeTs = ts;
-        break;
-      }
-    }
+    AttendanceTimesheetEntity activeTs = openSheets.isEmpty() ? null : openSheets.get(0);
 
     boolean isCheckedIn = (activeTs != null);
     boolean isOnBreak = false;
@@ -127,7 +132,7 @@ public class AttendanceService {
     if (shiftId != null) {
       ShiftScheduleEntity s = em.find(ShiftScheduleEntity.class, shiftId);
       if (s != null) {
-        shiftInfo = s.plannedStartUtc.toString().substring(11, 16) + " - " + s.plannedEndUtc.toString().substring(11, 16);
+        shiftInfo = berlinHHmm(s.plannedStartUtc) + " - " + berlinHHmm(s.plannedEndUtc);
       }
     }
 
@@ -154,7 +159,7 @@ public class AttendanceService {
   }
 
   public AttendanceTimesheetEntity checkIn(Long employeeId, String source, String ipAddress, String deviceInfo, String notes) {
-    EmployeeEntity emp = em.find(EmployeeEntity.class, employeeId);
+    EmployeeEntity emp = em.find(EmployeeEntity.class, employeeId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
     if (emp == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy nhân viên ID #" + employeeId);
     }
@@ -179,7 +184,7 @@ public class AttendanceService {
     Instant searchEnd = now.plus(Duration.ofHours(3));
 
     List<ShiftScheduleEntity> shifts = em.createQuery(
-      "SELECT s FROM ShiftScheduleEntity s WHERE s.employeeId = :e AND s.plannedStartUtc BETWEEN :start AND :end AND s.status != 'CANCELLED' ORDER BY s.plannedStartUtc ASC",
+      "SELECT s FROM ShiftScheduleEntity s WHERE s.employeeId = :e AND s.plannedStartUtc BETWEEN :start AND :end AND s.status = 'PUBLISHED' ORDER BY s.plannedStartUtc ASC",
       ShiftScheduleEntity.class
     )
     .setParameter("e", employeeId)
@@ -204,11 +209,16 @@ public class AttendanceService {
     // 2. Create or initialize timesheet
     AttendanceTimesheetEntity ts = new AttendanceTimesheetEntity();
     ts.employeeId = employeeId;
-    ts.branchId = matchedShift != null ? matchedShift.branchId : 1L;
+    var assignments = access.assignments(employeeId, today);
+    ts.branchId = matchedShift != null ? matchedShift.branchId : assignments.stream()
+      .map(a -> a.branchId).distinct().reduce((first, second) -> {
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "Cần có ca đã công bố khi làm việc tại nhiều chi nhánh.");
+      }).orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Chưa có phân công chi nhánh hiệu lực."));
     ts.shiftId = matchedShift != null ? matchedShift.shiftId : null;
-    ts.workDate = today;
+    ts.workDate = matchedShift == null ? today : matchedShift.plannedStartUtc.atZone(BERLIN_ZONE).toLocalDate();
     ts.actualStartUtc = now;
     ts.status = "OPEN";
+    em.persist(ts);
 
     if (matchedShift != null) {
       ts.plannedStartUtc = matchedShift.plannedStartUtc;
@@ -222,7 +232,7 @@ public class AttendanceService {
         if (late > 15) {
           ts.hasException = true;
           createException(ts, employeeId, "LATE_ARRIVAL", "WARNING",
-            "Đi muộn " + late + " phút so với ca phân công (" + matchedShift.plannedStartUtc.toString().substring(11, 16) + ")",
+            "Đi muộn " + late + " phút so với ca phân công (" + berlinHHmm(matchedShift.plannedStartUtc) + ")",
             "Verspätung von " + late + " Minuten gegenüber Dienstplan");
         }
       }
@@ -233,11 +243,11 @@ public class AttendanceService {
         "Einsatz ohne vorherige Dienstplanung");
     }
 
-    em.persist(ts);
     return ts;
   }
 
   public AttendanceTimesheetEntity checkOut(Long employeeId, String source, String notes) {
+    em.find(EmployeeEntity.class, employeeId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
     Instant now = Instant.now();
 
     List<AttendanceTimesheetEntity> activeList = em.createQuery(
@@ -292,7 +302,7 @@ public class AttendanceService {
         if (early > 15) {
           ts.hasException = true;
           createException(ts, employeeId, "EARLY_DEPARTURE", "WARNING",
-            "Rời ca sớm " + early + " phút so với ca kế hoạch (" + ts.plannedEndUtc.toString().substring(11, 16) + ")",
+            "Rời ca sớm " + early + " phút so với ca kế hoạch (" + berlinHHmm(ts.plannedEndUtc) + ")",
             "Vorzeitiges Verlassen der Schicht um " + early + " Minuten");
         }
       } else {
@@ -301,13 +311,22 @@ public class AttendanceService {
       }
     }
 
+    applyArbZgChecks(ts, employeeId, workedMins, breakMins);
+
+    ts.status = "PENDING_APPROVAL";
+    ts.updatedAtUtc = now;
+    return ts;
+  }
+
+  private void applyArbZgChecks(AttendanceTimesheetEntity ts, Long employeeId, int workedMins, int breakMins) {
     // Check ArbZG §4 - Break compliance
-    if (workedMins > 360 && breakMins < 30) { // > 6h must have >= 30m
+    if (workedMins > 360 && workedMins <= 540 && breakMins < 30) { // > 6h must have >= 30m
       ts.hasException = true;
       createException(ts, employeeId, "INSUFFICIENT_BREAK", "WARNING",
         "Vi phạm ArbZG §4: Ca làm việc trên 6 giờ phải nghỉ tối thiểu 30 phút (thực tế nghỉ " + breakMins + " phút)",
         "Verstoß ArbZG §4: Bei mehr als 6 Stunden Arbeit mindestens 30 Minuten Ruhepause erforderlich");
-    } else if (workedMins > 540 && breakMins < 45) { // > 9h must have >= 45m
+    }
+    if (workedMins > 540 && breakMins < 45) { // > 9h must have >= 45m
       ts.hasException = true;
       createException(ts, employeeId, "INSUFFICIENT_BREAK", "WARNING",
         "Vi phạm ArbZG §4: Ca làm việc trên 9 giờ phải nghỉ tối thiểu 45 phút (thực tế nghỉ " + breakMins + " phút)",
@@ -321,13 +340,10 @@ public class AttendanceService {
         "Vi phạm ArbZG §3: Tổng giờ làm việc thực tế " + (workedMins / 60.0) + "h vượt quá giới hạn 10 giờ/ngày",
         "Kritischer Verstoß ArbZG §3: Arbeitszeit übersteigt 10 Stunden pro Tag");
     }
-
-    ts.status = "PENDING_APPROVAL";
-    ts.updatedAtUtc = now;
-    return ts;
   }
 
   public BreakRecordEntity startBreak(Long employeeId, String breakType) {
+    em.find(EmployeeEntity.class, employeeId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
     Instant now = Instant.now();
 
     List<AttendanceTimesheetEntity> activeList = em.createQuery(
@@ -364,6 +380,7 @@ public class AttendanceService {
   }
 
   public BreakRecordEntity endBreak(Long employeeId) {
+    em.find(EmployeeEntity.class, employeeId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
     Instant now = Instant.now();
 
     List<BreakRecordEntity> openBreaks = em.createQuery(
@@ -380,7 +397,7 @@ public class AttendanceService {
     BreakRecordEntity br = openBreaks.get(0);
     br.endTimeUtc = now;
     int mins = (int) Duration.between(br.startTimeUtc, now).toMinutes();
-    br.durationMinutes = Math.max(1, mins);
+    br.durationMinutes = Math.max(0, mins);
 
     // Update timesheet
     List<AttendanceTimesheetEntity> activeList = em.createQuery(
@@ -415,12 +432,12 @@ public class AttendanceService {
     EmployeeEntity emp = em.find(EmployeeEntity.class, employeeId);
     String empName = emp != null ? emp.displayName : "Nhân viên #" + employeeId;
     String empCode = emp != null ? emp.employeeCode : "E-";
-    String posName = resolvePosition(employeeId);
+    String posName = null;
 
     return list.stream().map(t -> toDto(t, empName, empCode, posName)).toList();
   }
 
-  public List<TimesheetDto> getBranchTimesheets(Long branchId, LocalDate from, LocalDate to) {
+  public List<TimesheetDto> getBranchTimesheets(String branchId, LocalDate from, LocalDate to) {
     LocalDate start = (from != null) ? from : LocalDate.now(BERLIN_ZONE).minusDays(7);
     LocalDate end = (to != null) ? to : LocalDate.now(BERLIN_ZONE).plusDays(1);
 
@@ -438,34 +455,21 @@ public class AttendanceService {
       EmployeeEntity emp = empMap.computeIfAbsent(t.employeeId, id -> em.find(EmployeeEntity.class, id));
       String name = emp != null ? emp.displayName : "Nhân viên #" + t.employeeId;
       String code = emp != null ? emp.employeeCode : "E-";
-      String pos = resolvePosition(t.employeeId);
-      return toDto(t, name, code, pos);
+      String pos = access.positionName(t.employeeId, t.branchId, t.workDate);
+      return toDto(t, name, code, access.positionName(t.employeeId, t.branchId, t.workDate));
     }).toList();
   }
 
-  private String resolvePosition(Long employeeId) {
-    try {
-      List<?> rows = em.createNativeQuery(
-        "SELECT pos.position_name_de FROM employee_assignments a JOIN positions pos ON a.position_id = pos.position_id WHERE a.employee_id = :eid ORDER BY a.assignment_id DESC LIMIT 1"
-      )
-      .setParameter("eid", employeeId)
-      .getResultList();
-      if (!rows.isEmpty() && rows.get(0) != null) {
-        return (String) rows.get(0);
-      }
-    } catch (Exception ignored) {}
-    return "Nhân viên";
-  }
-
   public AttendanceTimesheetEntity addManualEntry(
-    Long branchId,
+    String branchId,
     Long employeeId,
     LocalDate workDate,
     Instant startUtc,
     Instant endUtc,
     Integer breakMinutes,
+    Instant breakStartUtc,
     String reason,
-    Long authorUserId
+    String authorUserId
   ) {
     if (reason == null || reason.trim().length() < 5) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bắt buộc phải nhập lý do bổ sung giờ công hợp lệ (tối thiểu 5 ký tự)!");
@@ -474,14 +478,36 @@ public class AttendanceService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thời gian bắt đầu và kết thúc không hợp lệ!");
     }
 
-    int breakMins = (breakMinutes != null && breakMinutes >= 0) ? breakMinutes : 0;
+    int breakMins = breakMinutes == null ? 0 : breakMinutes;
     long totalMins = Duration.between(startUtc, endUtc).toMinutes();
-    int workedMins = Math.max(0, (int) totalMins - breakMins);
+    LocalDate effectiveWorkDate = (workDate != null) ? workDate : startUtc.atZone(BERLIN_ZONE).toLocalDate();
+    if (breakMins < 0 || breakMins >= totalMins || totalMins > 24 * 60
+      || !startUtc.atZone(BERLIN_ZONE).toLocalDate().equals(effectiveWorkDate)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ngày làm việc hoặc thời lượng nghỉ không hợp lệ.");
+    }
+    Long lockedPeriod = em.createQuery(
+      "SELECT COUNT(t) FROM AttendanceTimesheetEntity t WHERE t.branchId = :b AND t.workDate >= :d AND t.isLocked = TRUE",
+      Long.class
+    ).setParameter("b", branchId).setParameter("d", effectiveWorkDate).getSingleResult();
+    if (lockedPeriod > 0) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Kỳ công đến ngày này đã được chốt khóa, không thể bổ sung thủ công!");
+    }
+    em.find(EmployeeEntity.class, employeeId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+    Long overlap = em.createQuery("""
+      select count(t) from AttendanceTimesheetEntity t where t.employeeId=:employee
+      and t.actualStartUtc<:end and (t.actualEndUtc is null or t.actualEndUtc>:start)
+      """, Long.class).setParameter("employee", employeeId).setParameter("start", startUtc)
+      .setParameter("end", endUtc).getSingleResult();
+    if (overlap > 0) throw new ResponseStatusException(HttpStatus.CONFLICT, "Khoảng giờ đã có bảng công.");
+    Instant breakEndUtc = breakStartUtc == null ? null : breakStartUtc.plus(Duration.ofMinutes(breakMins));
+    if (breakStartUtc != null && (breakMins == 0 || breakStartUtc.isBefore(startUtc) || breakEndUtc.isAfter(endUtc)))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Khoảng nghỉ phải nằm trong giờ làm việc.");
+    int workedMins = (int) totalMins - breakMins;
 
     AttendanceTimesheetEntity ts = new AttendanceTimesheetEntity();
     ts.employeeId = employeeId;
     ts.branchId = branchId;
-    ts.workDate = (workDate != null) ? workDate : LocalDate.now(BERLIN_ZONE);
+    ts.workDate = effectiveWorkDate;
     ts.actualStartUtc = startUtc;
     ts.actualEndUtc = endUtc;
     ts.actualBreakMinutes = breakMins;
@@ -489,11 +515,23 @@ public class AttendanceService {
     ts.status = "PENDING_APPROVAL";
     ts.hasException = false;
     em.persist(ts);
+    em.flush();
+    applyArbZgChecks(ts, employeeId, workedMins, breakMins);
+
+    if (breakStartUtc != null) {
+      var pause = new BreakRecordEntity();
+      pause.employeeId = employeeId;
+      pause.breakType = "MANUAL_BREAK";
+      pause.startTimeUtc = breakStartUtc;
+      pause.endTimeUtc = breakEndUtc;
+      pause.durationMinutes = breakMins;
+      em.persist(pause);
+    }
 
     // Save adjustment log
     AttendanceAdjustmentEntity adj = new AttendanceAdjustmentEntity();
     adj.timesheetId = ts.timesheetId;
-    adj.adjustedByUserId = (authorUserId != null) ? authorUserId : 1L;
+    adj.adjustedByUserId = authorUserId;
     adj.newStartUtc = startUtc;
     adj.newEndUtc = endUtc;
     adj.newBreakMinutes = breakMins;
@@ -505,7 +543,7 @@ public class AttendanceService {
 
   private void createException(AttendanceTimesheetEntity ts, Long employeeId, String type, String severity, String vi, String de) {
     AttendanceExceptionEntity exc = new AttendanceExceptionEntity();
-    exc.timesheetId = (ts.timesheetId != null) ? ts.timesheetId : 0L;
+    exc.timesheetId = ts.timesheetId;
     exc.employeeId = employeeId;
     exc.exceptionType = type;
     exc.severity = severity;
@@ -517,12 +555,12 @@ public class AttendanceService {
 
   private TimesheetDto toDto(AttendanceTimesheetEntity t, String empName, String empCode, String posName) {
     List<BreakDto> breaks = em.createQuery(
-      "SELECT b FROM BreakRecordEntity b WHERE b.employeeId = :e AND b.startTimeUtc >= :s AND b.startTimeUtc <= :end ORDER BY b.startTimeUtc ASC",
+      "SELECT b FROM BreakRecordEntity b WHERE b.employeeId = :e AND b.startTimeUtc >= :s AND b.startTimeUtc < :end ORDER BY b.startTimeUtc ASC",
       BreakRecordEntity.class
     )
     .setParameter("e", t.employeeId)
-    .setParameter("s", t.workDate.atStartOfDay(BERLIN_ZONE).toInstant())
-    .setParameter("end", t.workDate.plusDays(1).atStartOfDay(BERLIN_ZONE).toInstant())
+    .setParameter("s", t.actualStartUtc == null ? t.workDate.atStartOfDay(BERLIN_ZONE).toInstant() : t.actualStartUtc)
+    .setParameter("end", t.actualEndUtc == null ? Instant.now() : t.actualEndUtc)
     .getResultList()
     .stream()
     .map(b -> new BreakDto(b.breakId, b.breakType, b.startTimeUtc, b.endTimeUtc, b.durationMinutes))

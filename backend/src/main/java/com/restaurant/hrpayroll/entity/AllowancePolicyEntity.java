@@ -13,7 +13,7 @@ public class AllowancePolicyEntity {
   public Long policyId;
 
   @Column(name = "legal_entity_id", nullable = false)
-  public Long legalEntityId;
+  public String legalEntityId;
 
   @Column(name = "policy_code", nullable = false, length = 40)
   public String policyCode;
@@ -27,8 +27,8 @@ public class AllowancePolicyEntity {
   @Column(name = "approval_status", nullable = false, length = 25)
   public String approvalStatus = "ACTIVE"; // ACTIVE, DRAFT, ARCHIVED
 
-  @Column(name = "approved_by_user_id")
-  public Long approvedByUserId;
+  @Column(name = "approved_by_user_id", length = 255)
+  public String approvedByUserId;
 
   @Column(name = "reference_document", length = 180)
   public String referenceDocument = "SFN-Tarifvertrag / Hausvereinbarung";

@@ -76,6 +76,16 @@ public class SecurityConfig {
             FilterChain chain
           ) throws ServletException, IOException {
             var user = auth.identity(req.getSession(false));
+            if (user != null
+              && !req.getRequestURI().startsWith(req.getContextPath() + "/api/v1/auth/")
+              && !req.getRequestURI().equals(req.getContextPath() + "/api/v1/health")
+              && (user.mfaEnabled || AuthService.sensitive(user))
+              && (!user.mfaEnabled || !Boolean.TRUE.equals(req.getSession(false).getAttribute("mfaVerified")))) {
+              res.setStatus(403);
+              res.setContentType("application/json;charset=UTF-8");
+              res.getWriter().write("{\"message\":\"Bitte zuerst die Zwei-Faktor-Anmeldung abschließen.\"}");
+              return;
+            }
             if (
               user != null
             ) SecurityContextHolder.getContext().setAuthentication(

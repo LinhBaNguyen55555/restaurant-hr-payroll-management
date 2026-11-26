@@ -2,7 +2,7 @@ import { useRef, type ReactNode, type ComponentProps } from "react";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
 import { Dialog } from "@animate-ui/react/primitives/base-ui/dialog";
-import { X, ArrowUpRight, Check, LoaderCircle } from "lucide-react";
+import { X, ArrowUpRight, Check, LoaderCircle, Pencil } from "lucide-react";
 import { motion } from "motion/react";
 import { spring, useShouldReduceMotion } from "@animate-ui/react/utils/motion";
 import { useI18n } from "../lib/i18n";
@@ -134,6 +134,7 @@ export function Modal({
   children,
   wide = false,
   drawer = false,
+  busy = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -142,13 +143,14 @@ export function Modal({
   children: ReactNode;
   wide?: boolean;
   drawer?: boolean;
+  busy?: boolean;
 }) {
   const { lang } = useI18n();
   return (
     <Dialog.Root
       open={open}
       onOpenChange={(v) => {
-        if (!v) onClose();
+        if (!v && !busy) onClose();
       }}
     >
       <Dialog.Portal>
@@ -159,14 +161,10 @@ export function Modal({
           <div className="modal-heading">
             <div>
               <Dialog.Title className="modal-title">{title}</Dialog.Title>
-              <Dialog.Description className="modal-description">
-                {description ||
-                  (lang === "vi"
-                    ? "Dữ liệu được lưu trữ an toàn trong không gian làm việc của bạn."
-                    : "Daten werden sicher in Ihrem Arbeitsbereich gespeichert.")}
-              </Dialog.Description>
+              {description && <Dialog.Description className="modal-description">{description}</Dialog.Description>}
             </div>
             <Dialog.Close
+              disabled={busy}
               className="icon-button"
               aria-label={lang === "vi" ? "Đóng" : "Schließen"}
             >
@@ -178,6 +176,13 @@ export function Modal({
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+export function EditButton({ name, onClick }: { name: string; onClick: () => void }) {
+  const { lang } = useI18n();
+  return <button type="button" className="record-action"
+    aria-label={lang === "vi" ? `Sửa ${name}` : `${name} bearbeiten`} onClick={onClick}>
+    <Pencil size={14} aria-hidden="true" />{lang === "vi" ? "Sửa" : "Bearbeiten"}
+  </button>;
 }
 export function Press({
   children,

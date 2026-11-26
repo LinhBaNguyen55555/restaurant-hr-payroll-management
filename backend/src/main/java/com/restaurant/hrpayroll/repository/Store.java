@@ -62,12 +62,18 @@ public class Store {
     String q = email.toLowerCase(Locale.ROOT).trim();
     return em
       .createQuery(
-        "select u from UserAccount u where lower(u.email)=:q or lower(u.email)=:domain or lower(u.email)=:atelier or lower(u.name)=:q or u.id=:q",
+        """
+        select u from UserAccount u
+        where lower(u.email)=:q or lower(u.email)=:domain or lower(u.email)=:atelier or lower(u.name)=:q or u.id=:q
+        order by case when lower(u.email)=:q then 0 when u.id=:q then 1
+                      when lower(u.email)=:domain then 2 when lower(u.email)=:atelier then 3 else 4 end, u.id
+        """,
         UserAccount.class
       )
       .setParameter("q", q)
       .setParameter("domain", q + "@restaurant.example")
       .setParameter("atelier", q + "@atelier.local")
+      .setMaxResults(1)
       .getResultStream()
       .findFirst()
       .orElse(null);

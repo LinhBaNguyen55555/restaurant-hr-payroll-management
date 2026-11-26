@@ -4,8 +4,10 @@ import com.restaurant.hrpayroll.entity.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -16,16 +18,46 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional
 public class EmployeeService {
 
+  private static final ZoneId BERLIN_ZONE = ZoneId.of("Europe/Berlin");
+
   @PersistenceContext
   private EntityManager em;
 
-  public static final BigDecimal GERMAN_MINIMUM_WAGE_2024 = new BigDecimal("12.41");
-  public static final BigDecimal MINIJOB_MONTHLY_LIMIT = new BigDecimal("538.00");
+
+  private static final NavigableMap<LocalDate, BigDecimal> WAGES = new TreeMap<>(Map.of(
+    LocalDate.of(2022, 10, 1), new BigDecimal("12.00"),
+    LocalDate.of(2024, 1, 1), new BigDecimal("12.41"),
+    LocalDate.of(2025, 1, 1), new BigDecimal("12.82"),
+    LocalDate.of(2026, 1, 1), new BigDecimal("13.90"),
+    LocalDate.of(2027, 1, 1), new BigDecimal("14.60")
+  ));
+  private final Access access;
+
+  public EmployeeService(Access access) {
+    this.access = access;
+  }
+
+  public static BigDecimal minimumWage(LocalDate date) {
+    var rate = WAGES.floorEntry(date);
+    if (rate == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Chưa cấu hình lương tối thiểu cho ngày hiệu lực.");
+    return rate.getValue();
+  }
+
+  public static BigDecimal minijobLimit(LocalDate date) {
+    return minimumWage(date).multiply(BigDecimal.valueOf(130)).divide(BigDecimal.valueOf(3), 0, RoundingMode.CEILING);
+  }
+
+  private static void validateWage(LocalDate date, String type, BigDecimal hourly, BigDecimal monthly) {
+    if (hourly != null && hourly.compareTo(minimumWage(date)) < 0)
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Lương giờ tối thiểu tại ngày hiệu lực: " + minimumWage(date) + " EUR.");
+    if (monthly != null && (monthly.signum() <= 0 || ("MINIJOB".equals(type) && monthly.compareTo(minijobLimit(date)) > 0)))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Lương tháng hoặc hạn mức Minijob không hợp lệ.");
+  }
 
   public record EmployeeDto(
     Long employeeId,
     String employeeCode,
-    Long legalEntityId,
+    String legalEntityId,
     String firstName,
     String lastName,
     String displayName,
@@ -38,7 +70,7 @@ public class EmployeeService {
     String positionCode,
     String positionNameDe,
     String positionNameEn,
-    Long branchId,
+    String branchId,
     String branchName,
     String contractType,
     String payType,
@@ -57,8 +89,8 @@ public class EmployeeService {
 
   public record EmployeeInput(
     String employeeCode,
-    Long legalEntityId,
-    Long branchId,
+    String legalEntityId,
+    String branchId,
     Long positionId,
     String firstName,
     String lastName,
@@ -72,14 +104,15 @@ public class EmployeeService {
     BigDecimal monthlyWage
   ) {}
 
-  public List<EmployeeDto> listEmployees(Long branchId, String search, String status) {
+  public List<EmployeeDto> listEmployees(String branchId, String search, String status, Long exactId, boolean privateFields) {
     StringBuilder sql = new StringBuilder("SELECT e FROM EmployeeEntity e WHERE 1=1 ");
     if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
       sql.append("AND e.employmentStatus = :st ");
     }
     if (search != null && !search.isBlank()) {
-      sql.append("AND (LOWER(e.firstName) LIKE :s OR LOWER(e.lastName) LIKE :s OR LOWER(e.employeeCode) LIKE :s OR LOWER(e.email) LIKE :s) ");
+      sql.append("AND (LOWER(e.firstName) LIKE :s OR LOWER(e.lastName) LIKE :s OR LOWER(e.employeeCode) LIKE :s) ");
     }
+    if (exactId != null) sql.append("AND e.employeeId = :id ");
     sql.append("ORDER BY e.employeeId ASC");
 
     var query = em.createQuery(sql.toString(), EmployeeEntity.class);
@@ -90,32 +123,20 @@ public class EmployeeService {
       query.setParameter("s", "%" + search.toLowerCase().trim() + "%");
     }
 
+    if (exactId != null) query.setParameter("id", exactId);
     List<EmployeeEntity> list = query.getResultList();
     List<EmployeeDto> result = new ArrayList<>();
 
+    LocalDate todayBerlin = LocalDate.now(BERLIN_ZONE);
     for (EmployeeEntity e : list) {
-      // Find branch from employee_assignments
-      Long bId = null;
-      String bName = null;
-      Long pId = null;
-      try {
-        var assign = em.createNativeQuery(
-          "SELECT a.branch_id, b.name, a.position_id FROM employee_assignments a JOIN branches b ON a.branch_id = b.id WHERE a.employee_id = :eid ORDER BY a.assignment_id DESC LIMIT 1"
-        )
-        .setParameter("eid", e.employeeId)
-        .getResultList();
-        if (!assign.isEmpty()) {
-          Object[] row = (Object[]) assign.get(0);
-          bId = row[0] != null ? Long.valueOf(row[0].toString()) : null;
-          bName = row[1] != null ? row[1].toString() : null;
-          pId = row[2] != null ? Long.valueOf(row[2].toString()) : null;
-        }
-      } catch (Exception ignored) {}
-
-      // Filter by branchId if specified
-      if (branchId != null && (bId == null || !bId.equals(branchId))) {
-        continue;
-      }
+      if (!access.managesEmployee(e.employeeId)) continue;
+      var assignment = access.assignments(e.employeeId, todayBerlin).stream()
+        .filter(a -> branchId == null || branchId.equals(a.branchId)).findFirst().orElse(null);
+      if (branchId != null && assignment == null) continue;
+      String bId = assignment == null ? null : assignment.branchId;
+      var branch = bId == null ? null : em.find(Domain.Branch.class, bId);
+      String bName = branch == null ? null : branch.name;
+      Long pId = assignment == null ? null : assignment.positionId;
 
       // Position
       String pCode = null, pDe = null, pEn = null;
@@ -130,15 +151,15 @@ public class EmployeeService {
 
       // Active Contract
       List<EmploymentContractEntity> contracts = em.createQuery(
-        "SELECT c FROM EmploymentContractEntity c WHERE c.employeeId = :eid AND c.status = 'ACTIVE' ORDER BY c.startDate DESC",
+        "SELECT c FROM EmploymentContractEntity c WHERE c.employeeId = :eid AND c.startDate<=:today AND (c.endDate IS NULL OR c.endDate>=:today) ORDER BY c.startDate DESC",
         EmploymentContractEntity.class
-      ).setParameter("eid", e.employeeId).setMaxResults(1).getResultList();
+      ).setParameter("eid", e.employeeId).setParameter("today", todayBerlin).setMaxResults(1).getResultList();
 
       String cType = null, payType = null;
       Integer weeklyHours = null;
       BigDecimal hourly = null, monthly = null;
 
-      if (!contracts.isEmpty()) {
+      if (privateFields && !contracts.isEmpty()) {
         EmploymentContractEntity c = contracts.get(0);
         cType = c.contractType;
         payType = c.payType;
@@ -150,7 +171,7 @@ public class EmployeeService {
           WageRateEntity.class
         )
         .setParameter("cid", c.contractId)
-        .setParameter("today", LocalDate.now())
+        .setParameter("today", todayBerlin)
         .setMaxResults(1)
         .getResultList();
 
@@ -166,7 +187,7 @@ public class EmployeeService {
         WorkRestrictionEntity.class
       )
       .setParameter("eid", e.employeeId)
-      .setParameter("today", LocalDate.now())
+      .setParameter("today", todayBerlin)
       .getResultList();
 
       List<String> restrSummaries = new ArrayList<>();
@@ -181,10 +202,10 @@ public class EmployeeService {
         e.firstName,
         e.lastName,
         e.displayName,
-        e.dateOfBirth,
-        e.email,
-        e.hireDate,
-        e.terminationDate,
+        privateFields ? e.dateOfBirth : null,
+        privateFields ? e.email : null,
+        privateFields ? e.hireDate : null,
+        privateFields ? e.terminationDate : null,
         e.employmentStatus,
         pId,
         pCode,
@@ -197,7 +218,7 @@ public class EmployeeService {
         weeklyHours,
         hourly,
         monthly,
-        restrSummaries
+        privateFields ? restrSummaries : List.of()
       ));
     }
 
@@ -230,7 +251,7 @@ public class EmployeeService {
     ).setParameter("eid", employeeId).getResultList();
 
     // Summary profile
-    List<EmployeeDto> summaryList = listEmployees(null, e.employeeCode, "ALL");
+    List<EmployeeDto> summaryList = listEmployees(null, null, "ALL", employeeId, true);
     EmployeeDto profile = !summaryList.isEmpty() ? summaryList.get(0) : null;
 
     return new EmployeeDetailDto(profile, contracts, allWages, restrictions);
@@ -245,33 +266,36 @@ public class EmployeeService {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Mã nhân viên '" + input.employeeCode() + "' đã tồn tại.");
     }
 
-    // 2. Validation for German Minimum Wage (MiLoG >= 12.41€/h)
-    if (input.hourlyWage() != null && input.hourlyWage().compareTo(GERMAN_MINIMUM_WAGE_2024) < 0) {
-      throw new ResponseStatusException(
-        HttpStatus.BAD_REQUEST,
-        "Mức lương theo giờ (" + input.hourlyWage() + "€) vi phạm mức lương tối thiểu của Đức (MiLoG: tối thiểu " + GERMAN_MINIMUM_WAGE_2024 + "€/h)."
-      );
+    LocalDate effective = input.hireDate() == null ? LocalDate.now(BERLIN_ZONE) : input.hireDate();
+    validateWage(effective, input.contractType(), input.hourlyWage(), input.monthlyWage());
+    var branch = input.branchId() == null ? null : em.find(Domain.Branch.class, input.branchId());
+    var position = input.positionId() == null ? null : em.find(PositionEntity.class, input.positionId());
+    if (branch == null || !branch.active || !Objects.equals(branch.legalEntityId, input.legalEntityId())
+      || (input.positionId() != null && (position == null || !position.active))) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Chi nhánh, pháp nhân hoặc vị trí không hợp lệ.");
     }
-
-    // 3. Validation for Minijob limit (<= 538€)
-    if ("MINIJOB".equalsIgnoreCase(input.contractType())) {
-      if (input.monthlyWage() != null && input.monthlyWage().compareTo(MINIJOB_MONTHLY_LIMIT) > 0) {
-        throw new ResponseStatusException(
-          HttpStatus.BAD_REQUEST,
-          "Hợp đồng Minijob không được vượt quá " + MINIJOB_MONTHLY_LIMIT + "€/tháng theo luật Đức."
-        );
-      }
+    var location = em.createQuery(
+      "select l from WorkLocation l where l.branchId=:id and l.active=true order by l.createdAt, l.id", Domain.WorkLocation.class)
+      .setParameter("id", branch.id).setMaxResults(1).getResultList().stream().findFirst()
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Chi nhánh chưa có địa điểm làm việc đang hoạt động."));
+    if (input.employeeCode() == null || input.employeeCode().isBlank() || input.firstName() == null
+      || input.firstName().isBlank() || input.lastName() == null || input.lastName().isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mã, họ và tên nhân viên là bắt buộc.");
     }
+    String email = input.email() == null || input.email().isBlank() ? null : input.email().trim().toLowerCase(Locale.ROOT);
+    if (email != null && em.createQuery("select count(e) from EmployeeEntity e where lower(e.email)=:email", Long.class)
+      .setParameter("email", email).getSingleResult() != 0)
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Email đã thuộc một hồ sơ nhân viên khác.");
 
     EmployeeEntity emp = new EmployeeEntity();
     emp.employeeCode = input.employeeCode();
-    emp.legalEntityId = input.legalEntityId() != null ? input.legalEntityId() : 1L;
+    emp.legalEntityId = input.legalEntityId();
     emp.firstName = input.firstName();
     emp.lastName = input.lastName();
     emp.displayName = input.firstName() + " " + input.lastName();
     emp.dateOfBirth = input.dateOfBirth();
-    emp.email = input.email();
-    emp.hireDate = input.hireDate() != null ? input.hireDate() : LocalDate.now();
+    emp.email = email;
+    emp.hireDate = effective;
     emp.employmentStatus = "ACTIVE";
     emp.createdAtUtc = Instant.now();
     em.persist(emp);
@@ -301,20 +325,25 @@ public class EmployeeService {
       em.persist(wage);
     }
 
-    // Create assignment if branch & position provided
-    if (input.branchId() != null && input.positionId() != null) {
-      try {
-        em.createNativeQuery(
-          "INSERT INTO employee_assignments (employee_id, branch_id, position_id, valid_from, assignment_type, address_snapshot, kind, reason, state_code, timezone, work_location_id) " +
-          "VALUES (:eid, :bid, :pid, :vf, 'PRIMARY', 'Snapshot', 'PRIMARY', 'Tạo mới hồ sơ', 'BW', 'Europe/Berlin', 1)"
-        )
-        .setParameter("eid", emp.employeeId)
-        .setParameter("bid", input.branchId())
-        .setParameter("pid", input.positionId())
-        .setParameter("vf", emp.hireDate)
-        .executeUpdate();
-      } catch (Exception ignored) {}
-    }
+    var profile = new Domain.EmployeeRef();
+    profile.id = emp.employeeId.toString();
+    profile.name = emp.displayName;
+    profile.position = position == null ? null : position.positionNameDe;
+    profile.homeBranchId = branch.id;
+    em.persist(profile);
+
+    var assignment = new Domain.EmployeeAssignment();
+    assignment.employeeId = profile.id;
+    assignment.branchId = branch.id;
+    assignment.workLocationId = location.id;
+    assignment.positionId = input.positionId();
+    assignment.validFrom = effective;
+    assignment.kind = "HOME";
+    assignment.reason = "Tạo hồ sơ nhân viên";
+    assignment.stateCode = location.stateCode;
+    assignment.timezone = location.timezone;
+    assignment.addressSnapshot = location.address;
+    em.persist(assignment);
 
     return emp;
   }
@@ -323,6 +352,10 @@ public class EmployeeService {
     EmployeeEntity emp = em.find(EmployeeEntity.class, employeeId);
     if (emp == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy nhân viên.");
 
+    if (newContract.startDate == null || newContract.startDate.isBefore(emp.hireDate)
+      || (newContract.endDate != null && newContract.endDate.isBefore(newContract.startDate)))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ngày hiệu lực hợp đồng không hợp lệ.");
+
     // Close previous active contract by setting end_date = newContract.startDate - 1 day
     List<EmploymentContractEntity> activeContracts = em.createQuery(
       "SELECT c FROM EmploymentContractEntity c WHERE c.employeeId = :eid AND c.status = 'ACTIVE'",
@@ -330,12 +363,14 @@ public class EmployeeService {
     ).setParameter("eid", employeeId).getResultList();
 
     for (EmploymentContractEntity old : activeContracts) {
-      if (old.endDate == null || old.endDate.isAfter(newContract.startDate)) {
+      if (!old.startDate.isBefore(newContract.startDate)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Đã có hợp đồng hiệu lực vào ngày này hoặc sau đó.");
+      if (old.endDate == null || !old.endDate.isBefore(newContract.startDate)) {
         old.endDate = newContract.startDate.minusDays(1);
         old.status = "EXPIRED";
       }
     }
 
+    newContract.contractId = null;
     newContract.employeeId = employeeId;
     newContract.status = "ACTIVE";
     em.persist(newContract);
@@ -345,12 +380,12 @@ public class EmployeeService {
     EmploymentContractEntity contract = em.find(EmploymentContractEntity.class, contractId);
     if (contract == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy hợp đồng.");
 
-    if (newWage.grossHourlyEur != null && newWage.grossHourlyEur.compareTo(GERMAN_MINIMUM_WAGE_2024) < 0) {
-      throw new ResponseStatusException(
-        HttpStatus.BAD_REQUEST,
-        "Mức lương theo giờ (" + newWage.grossHourlyEur + "€) vi phạm mức lương tối thiểu của Đức (MiLoG >= " + GERMAN_MINIMUM_WAGE_2024 + "€)."
-      );
+    if (newWage.validFrom == null || newWage.validFrom.isBefore(contract.startDate)
+      || (contract.endDate != null && newWage.validFrom.isAfter(contract.endDate))
+      || (newWage.validTo != null && newWage.validTo.isBefore(newWage.validFrom))) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ngày hiệu lực mức lương không hợp lệ.");
     }
+    validateWage(newWage.validFrom, contract.contractType, newWage.grossHourlyEur, newWage.grossMonthlyEur);
 
     // Close previous wage rate
     List<WageRateEntity> activeWages = em.createQuery(
@@ -362,9 +397,11 @@ public class EmployeeService {
     .getResultList();
 
     for (WageRateEntity old : activeWages) {
+      if (!old.validFrom.isBefore(newWage.validFrom)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Đã có mức lương cho ngày này hoặc ngày sau đó.");
       old.validTo = newWage.validFrom.minusDays(1);
     }
 
+    newWage.wageRateId = null;
     newWage.contractId = contractId;
     newWage.approvalStatus = "APPROVED";
     em.persist(newWage);
@@ -373,7 +410,23 @@ public class EmployeeService {
   public void addWorkRestriction(Long employeeId, WorkRestrictionEntity restriction) {
     EmployeeEntity emp = em.find(EmployeeEntity.class, employeeId);
     if (emp == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy nhân viên.");
+    if (restriction == null || restriction.restrictionType == null
+      || !List.of("YOUTH_PROTECTION", "MATERNITY_PROTECTION", "MEDICAL_LIMIT").contains(restriction.restrictionType.toUpperCase(Locale.ROOT))) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Loại hạn chế lao động không hợp lệ.");
+    }
+    if (restriction.validFrom == null || (restriction.validTo != null && restriction.validTo.isBefore(restriction.validFrom))) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Khoảng ngày hiệu lực hạn chế không hợp lệ.");
+    }
+    if ((restriction.maxDailyMinutes != null && (restriction.maxDailyMinutes <= 0 || restriction.maxDailyMinutes > 720))
+      || (restriction.maxWeeklyMinutes != null && (restriction.maxWeeklyMinutes <= 0 || restriction.maxWeeklyMinutes > 3600))) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Giới hạn số phút làm việc không hợp lệ.");
+    }
+    if (restriction.schedulingRuleSummary == null || restriction.schedulingRuleSummary.isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mô tả quy tắc xếp ca không được để trống.");
+    }
 
+    restriction.restrictionId = null;
+    restriction.restrictionType = restriction.restrictionType.toUpperCase(Locale.ROOT);
     restriction.employeeId = employeeId;
     restriction.createdAtUtc = Instant.now();
     em.persist(restriction);

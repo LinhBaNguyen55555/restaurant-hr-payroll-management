@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -18,6 +18,7 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const reset = new URLSearchParams(location.search).get("reset");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const passwordInput = useRef<HTMLInputElement>(null);
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -57,20 +58,9 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
           <LanguageSwitcher />
         </div>
         <div className="auth-form">
-          <div className="eyebrow">{lang === "vi" ? "HỆ THỐNG QUẢN TRỊ NHÂN SỰ & TIỀN LƯƠNG NHÀ HÀNG" : "EIN GUTER ORT FÜR IHR TEAM"}</div>
-          <h1>
-            {done ? (
-              lang === "vi" ? "Khởi đầu mới." : "Ein neuer Anfang."
-            ) : reset ? (
-              lang === "vi" ? "Đặt lại mật khẩu." : "Passwort erneuern."
-            ) : (
-              <>
-                {lang === "vi" ? "Chào mừng bạn" : "Schön, dass"}
-                <br />
-                {lang === "vi" ? "đã quay lại" : "Sie da sind"}<span>.</span>
-              </>
-            )}
-          </h1>
+          <h1>{done ? (lang === "vi" ? "Đã đổi mật khẩu" : "Passwort geändert")
+            : reset ? (lang === "vi" ? "Đặt lại mật khẩu" : "Passwort erneuern")
+            : (lang === "vi" ? "Đăng nhập" : "Anmelden")}</h1>
           <p>
             {done
               ? (lang === "vi" ? "Mật khẩu đã được cập nhật. Bạn có thể đăng nhập lại ngay." : "Ihr Passwort wurde aktualisiert. Sie können sich jetzt wieder anmelden.")
@@ -114,6 +104,7 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
                   <input
                     type="password"
                     name="password"
+                    ref={passwordInput}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder={
@@ -170,31 +161,30 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
               )}
               {import.meta.env.DEV && !reset && (
                 <div className="demo-access">
-                  <span>{lang === "vi" ? "Tài khoản mẫu từ MySQL (Bấm để điền):" : "MySQL Demo-Konten"}</span>
+                  <span>{lang === "vi" ? "Chọn tên đăng nhập MySQL" : "MySQL-Benutzernamen auswählen"}</span>
                   <div>
                     {[
-                      ["tobias.hoffmann", lang === "vi" ? "QL Tobias" : "Tobias (Leitung)", "Password123!"],
-                      ["lukas.schneider", lang === "vi" ? "Admin Lukas" : "Lukas (Admin/HR)", "Password123!"],
-                      ["admin", lang === "vi" ? "Quản trị" : "Administration", "Password123!"],
-                      ["anna.mueller", lang === "vi" ? "NV Anna" : "Anna (Mitarb.)", "Password123!"],
-                    ].map(([acc, title, pwd]) => (
-                      <button
-                        type="button"
-                        key={acc}
-                        onClick={() => {
-                          setEmail(acc);
-                          setPassword(pwd);
-                        }}
-                      >
-                        {title}
-                        <ArrowUpRight size={12} />
+                      ["tobias.hoffmann", "Tobias Hoffmann"],
+                      ["lukas.schneider", "Lukas Schneider"],
+                      ["admin", "admin"],
+                      ["anna.mueller", "Anna Müller"],
+                    ].map(([account, label]) => (
+                      <button type="button" key={account} onClick={() => {
+                        const address = account + "@restaurant.example";
+                        const previous = email.trim().toLowerCase();
+                        if (previous && previous !== account && previous !== address) setPassword("");
+                        setEmail(address);
+                        setError("");
+                        passwordInput.current?.focus();
+                      }}>
+                        {label}<ArrowUpRight size={12} />
                       </button>
                     ))}
                   </div>
                   <small>
                     {lang === "vi"
-                      ? "Các vai trò nhạy cảm (Admin, HR) sẽ thiết lập Authenticator TOTP trong lần đăng nhập đầu tiên."
-                      : "Sensible Rollen richten bei der ersten Anmeldung einen Authenticator ein."}
+                      ? "Chọn tài khoản, nhập mật khẩu của tài khoản đó rồi bấm “Vào làm việc”."
+                      : "Konto auswählen, das zugehörige Passwort eingeben und „Zum Arbeitsbereich“ wählen."}
                   </small>
                 </div>
               )}
@@ -209,48 +199,9 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
         </div>
       </div>
       <div className="auth-right">
-        <div className="auth-art-caption">
-          <span className="pill">{lang === "vi" ? "CON NGƯỜI LÀ TRỌNG TÂM" : "PEOPLE FIRST. ALWAYS."}</span>
-          <span>01 / 02</span>
-        </div>
         <Scene />
-        <div className="auth-art-text">
-          <h2>
-            {lang === "vi" ? (
-              <>
-                Nhiều chi nhánh.
-                <br />
-                Chung một chuẩn mực.
-              </>
-            ) : (
-              <>
-                Viele Orte.
-                <br />
-                Ein gemeinsames Gefühl.
-              </>
-            )}
-          </h2>
-          <p>
-            {lang === "vi" ? (
-              <>
-                Dành cho những con người mỗi ngày
-                <br />
-                tạo nên chất lượng dịch vụ ẩm thực xuất sắc.
-              </>
-            ) : (
-              <>
-                Für die Menschen, die jeden Tag
-                <br />
-                Gastfreundschaft möglich machen.
-              </>
-            )}
-          </p>
-        </div>
-        <div className="auth-art-bottom">
-          <span>
-            <i /> {lang === "vi" ? "Con người là trung tâm" : "Menschen im Mittelpunkt"}
-          </span>
-          <span>{lang === "vi" ? "HỆ THỐNG NHÀ HÀNG ATELIER" : "ATELIER GASTRONOMIE"}</span>
+        <div className="auth-art-text"><h2>Atelier Gastronomie</h2>
+          <p>{lang === "vi" ? "Lịch ca · Chấm công · Nhân sự" : "Dienstplan · Arbeitszeit · Personal"}</p>
         </div>
       </div>
     </div>

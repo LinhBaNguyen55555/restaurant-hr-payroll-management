@@ -13,7 +13,7 @@ public class ShiftTemplateEntity {
   public Long templateId;
 
   @Column(name = "branch_id", nullable = false)
-  public Long branchId;
+  public String branchId;
 
   @Column(name = "template_code", nullable = false, length = 40)
   public String templateCode;

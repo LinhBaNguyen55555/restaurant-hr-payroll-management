@@ -19,11 +19,11 @@ public class MfaService {
 
   public MfaService(
     @Value("${app.mfa-key:}") String configured,
-    @Value("${spring.profiles.active:dev}") String profile
+    @Value("${app.mfa-key-required:false}") boolean required
   ) throws Exception {
     if (!configured.isBlank()) key = Base64.getDecoder().decode(configured);
     else {
-      if (profile.contains("mysql")) throw new IllegalStateException(
+      if (required) throw new IllegalStateException(
         "MFA_ENCRYPTION_KEY is required outside development."
       );
       Path file = Path.of("data", "mfa.key");

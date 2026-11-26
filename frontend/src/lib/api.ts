@@ -106,6 +106,8 @@ export type SodMatrix = {
 export type Workspace = {
   user: User;
   permissions: string[];
+  selfEmployeeId?: number | null;
+  selfPostings?: { branchId: string; branchName: string; positionCode: string | null }[];
   entities: LegalEntity[];
   branches: Branch[];
   locations: WorkLocation[];
@@ -285,7 +287,7 @@ export const initials = (name: string) =>
 export type EmployeeDto = {
   employeeId: number;
   employeeCode: string;
-  legalEntityId: number;
+  legalEntityId: string;
   firstName: string;
   lastName: string;
   displayName: string;
@@ -298,7 +300,7 @@ export type EmployeeDto = {
   positionCode: string | null;
   positionNameDe: string | null;
   positionNameEn: string | null;
-  branchId: number | null;
+  branchId: string | null;
   branchName: string | null;
   contractType: string | null;
   payType: string | null;
@@ -364,7 +366,7 @@ export type PositionItem = {
 
 export type ShiftTemplate = {
   templateId: number;
-  branchId: number;
+  branchId: string;
   templateCode: string;
   templateName: string;
   localStartTime: string;
@@ -378,7 +380,7 @@ export type Shift = {
   employeeId: number;
   employeeCode: string;
   employeeName: string;
-  branchId: number;
+  branchId: string;
   templateId: number | null;
   templateName: string | null;
   plannedStartUtc: string;
@@ -422,10 +424,12 @@ export type ShiftSwapRequest = {
   swapRequestId: number;
   sourceShiftId: number;
   targetEmployeeId: number;
+  targetEmployeeName?: string | null;
   requestedByEmployeeId: number;
+  requestedByEmployeeName?: string | null;
   reason: string;
   status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
-  reviewedByUserId: number | null;
+  reviewedByUserId: string | null;
   createdAtUtc: string;
 };
 
@@ -488,7 +492,7 @@ export type Timesheet = {
   employeeName: string;
   employeeCode: string;
   positionName: string;
-  branchId: number;
+  branchId: string;
   shiftId: number | null;
   workDate: string;
   plannedStartUtc: string | null;
@@ -524,7 +528,7 @@ export type ReconciliationItem = {
   employeeName: string;
   employeeCode: string;
   positionName: string;
-  branchId: number;
+  branchId: string;
   workDate: string;
   plannedStartUtc: string | null;
   plannedEndUtc: string | null;
@@ -562,7 +566,7 @@ export type AttendanceChangeRequest = {
   requiresHrEscalation: boolean;
   status: "PENDING" | "HR_ESCALATED" | "APPROVED" | "REJECTED";
   decisionNotes: string | null;
-  decidedByUserId: number | null;
+  decidedByUserId: string | null;
   decidedAtUtc: string | null;
   createdAtUtc: string;
 };
@@ -571,44 +575,42 @@ export type AttendanceChangeRequest = {
 
 export type LeaveType = {
   leaveTypeId: number;
-  leaveTypeCode: string;
+  leaveCode: string;
   nameDe: string;
   nameVi: string;
-  isPaid: boolean;
-  requiresMedicalCertificate: boolean;
-  legalBasis: string;
-  colorHex: string;
 };
 
 export type LeaveBalance = {
   balanceId: number;
   employeeId: number;
-  year: number;
-  leaveTypeCode: string;
-  leaveTypeNameVi: string;
+  employeeName: string;
+  employeeCode: string;
+  leaveYear: number;
+  leaveTypeId: number;
+  leaveTypeName: string;
   entitledDays: number;
-  carriedOverDays: number;
-  takenDays: number;
-  pendingDays: number;
+  carriedDays: number;
+  usedDays: number;
   remainingDays: number;
   expiryDate: string | null;
 };
 
 export type LeaveRequest = {
-  requestId: number;
+  leaveRequestId: number;
   employeeId: number;
   employeeName: string;
   employeeCode: string;
+  leaveTypeId: number;
   leaveTypeCode: string;
-  leaveTypeNameVi: string;
+  leaveTypeName: string;
   startDate: string;
   endDate: string;
-  totalDays: number;
+  requestedDays: number;
   reason: string;
   status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
-  decisionNotes: string | null;
-  decidedByUserName: string | null;
-  decidedAtUtc: string | null;
+  reviewNotes: string | null;
+  reviewedByName: string | null;
+  reviewedAtUtc: string | null;
   createdAtUtc: string;
 };
 
@@ -619,11 +621,11 @@ export type SicknessAbsence = {
   employeeCode: string;
   startDate: string;
   endDate: string;
-  eauReferenceNumber: string | null;
-  isChildSickLeave: boolean;
+  confidentialDocumentRef: string | null;
   hasMedicalCertificate: boolean;
-  continuedPayEligible: boolean;
-  status: "CONFIRMED" | "EXPIRED" | "CANCELLED";
+  isContinuedPayEligible: boolean;
+  isChildSickLeave: boolean;
+  verificationStatus: string;
   createdAtUtc: string;
 };
 
@@ -631,12 +633,12 @@ export type CompensatoryRest = {
   restId: number;
   employeeId: number;
   employeeName: string;
-  workedDate: string;
-  sourceType: "SUNDAY" | "HOLIDAY";
+  relatedWorkDate: string;
+  restKind: "SUNDAY_COMPENSATION" | "HOLIDAY_COMPENSATION";
   deadlineDate: string;
-  isCompleted: boolean;
-  grantedDate: string | null;
-  daysRemaining: number;
+  status: string;
+  restDate: string | null;
+  daysUntilDeadline: number;
   isOverdue: boolean;
 };
 
@@ -651,7 +653,7 @@ export type PublicHoliday = {
 };
 
 export type SegmentCalculation = {
-  segmentId: number;
+  segmentId: number | null;
   timesheetId: number;
   segmentStartBerlin: string;
   segmentEndBerlin: string;
@@ -687,10 +689,12 @@ export type TimesheetAllowanceBreakdown = {
   totalTaxableAmountEur: number;
   totalSvExemptAmountEur: number;
   segments: SegmentCalculation[];
+  calculationIssue: string | null;
+  locked: boolean;
 };
 
 export type BranchAllowanceSummary = {
-  branchId: number;
+  branchId: string;
   fromDate: string;
   toDate: string;
   totalTimesheetsCount: number;
@@ -714,13 +718,13 @@ export const getLeaveBalances = (employeeId?: number, year?: number) => {
 export const getLeaveRequests = (employeeId?: number, status?: string) => {
   const p = new URLSearchParams();
   if (employeeId) p.set("employeeId", String(employeeId));
-  if (status) p.set("status", status);
+  if (status) p.set("statusFilter", status);
   return api<LeaveRequest[]>(`/leaves/requests?${p.toString()}`);
 };
 
 export const createLeaveRequest = (body: {
   employeeId?: number;
-  leaveTypeCode: string;
+  leaveTypeId: number;
   startDate: string;
   endDate: string;
   reason: string;
@@ -742,21 +746,23 @@ export const recordSicknessAbsence = (body: {
   employeeId: number;
   startDate: string;
   endDate: string;
-  eauReferenceNumber?: string;
-  isChildSickLeave?: boolean;
+  documentRef?: string;
+  hasMedicalCertificate: boolean;
+  isChildSickLeave: boolean;
+  certificateDate?: string;
 }) => api<SicknessAbsence>("/leaves/sickness", "POST", body);
 
 export const getCompensatoryRest = (employeeId?: number) => {
   const p = new URLSearchParams();
   if (employeeId) p.set("employeeId", String(employeeId));
-  return api<CompensatoryRest[]>(`/leaves/compensatory-rest?${p.toString()}`);
+  return api<CompensatoryRest[]>(`/leaves/compensatory-rests?${p.toString()}`);
 };
 
-export const completeCompensatoryRest = (restId: number, grantedDate?: string) =>
-  api<CompensatoryRest>(`/leaves/compensatory-rest/${restId}/complete`, "POST", { grantedDate });
+export const completeCompensatoryRest = (restId: number, restDate: string) =>
+  api<CompensatoryRest>(`/leaves/compensatory-rests/${restId}/fulfill`, "POST", { restDate });
 
 // API calls for Allowance (F07)
-export const getPublicHolidays = (branchId?: number, year?: number) => {
+export const getPublicHolidays = (branchId: string, year?: number) => {
   const p = new URLSearchParams();
   if (branchId) p.set("branchId", String(branchId));
   if (year) p.set("year", String(year));
@@ -770,7 +776,7 @@ export const getTimesheetAllowance = (timesheetId: number) =>
   api<TimesheetAllowanceBreakdown>(`/allowances/timesheets/${timesheetId}`);
 
 export const getBranchAllowanceSummary = (
-  branchId?: number,
+  branchId: string,
   fromDate?: string,
   toDate?: string
 ) => {

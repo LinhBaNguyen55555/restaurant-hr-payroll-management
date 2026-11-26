@@ -17,7 +17,7 @@ public class CompensatoryRestDayEntity {
   public Long employeeId;
 
   @Column(name = "branch_id", nullable = false)
-  public Long branchId = 1L;
+  public String branchId;
 
   @Column(name = "related_work_date", nullable = false)
   public LocalDate relatedWorkDate;

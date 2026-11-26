@@ -1,3 +1,5 @@
+import { useNotice } from "../lib/notice";
+import { berlinDate, berlinTime } from "../lib/work-time";
 import { useState, useEffect } from "react";
 import {
   FileCheck,
@@ -26,14 +28,17 @@ import { Modal } from "./experience";
 export function ReconciliationView({
   branches,
   currentUserId,
+  selfEmployeeId,
 }: {
   branches: Branch[];
   currentUserId?: string;
+  selfEmployeeId?: number | null;
 }) {
   const { lang } = useI18n();
+  const notify = useNotice();
 
-  const [selectedBranchId, setSelectedBranchId] = useState<number>(
-    branches[0]?.id ? Number(branches[0].id) : 1
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(
+    branches[0]?.id ?? ""
   );
   const [activeTab, setActiveTab] = useState<"reconcile" | "requests" | "lock">("reconcile");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
@@ -78,7 +83,7 @@ export function ReconciliationView({
       await api(`/reconciliation/timesheets/${timesheetId}/approve`, "POST", {});
       await loadData();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     }
   };
 
@@ -91,7 +96,7 @@ export function ReconciliationView({
   const formatTimeStr = (iso: string | null) => {
     if (!iso) return "--:--";
     try {
-      return new Date(iso).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+      return berlinTime(iso);
     } catch {
       return iso.slice(11, 16);
     }
@@ -101,23 +106,14 @@ export function ReconciliationView({
     <div className="space-y-6">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            {lang === "vi" ? "Đối soát & Phê duyệt giờ công (F05)" : "Soll-Ist-Abgleich & Genehmigung (F05)"}
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {lang === "vi"
-              ? "Đối chiếu 3 trục giữa Lịch ca kế hoạch và Giờ quẹt thẻ thực tế. Kiểm soát phân tách nhiệm vụ (SoD)."
-              : "Drei-Achsen-Abgleich von Plan- und Ist-Zeiten. Einhaltung von Funktionstrennung (SoD)."}
-          </p>
-        </div>
 
         {/* Branch Selector */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Building size={16} className="text-slate-400" />
           <select
+            aria-label={lang === "vi" ? "Chi nhánh" : "Niederlassung"}
             value={selectedBranchId}
-            onChange={(e) => setSelectedBranchId(Number(e.target.value))}
+            onChange={(e) => setSelectedBranchId(e.target.value)}
             className="h-10 px-3 text-sm font-semibold rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-emerald-950/40 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
           >
             {branches.map((b) => (
@@ -185,8 +181,8 @@ export function ReconciliationView({
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex items-center justify-between border-b border-slate-200 dark:border-white/10 gap-4">
-        <div className="flex gap-6 text-sm font-semibold">
+      <div className="flex flex-wrap items-center justify-between border-b border-slate-200 dark:border-white/10 gap-4">
+        <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm font-semibold">
           <button
             onClick={() => setActiveTab("reconcile")}
             className={`pb-3 border-b-2 transition flex items-center gap-2 cursor-pointer ${
@@ -236,6 +232,7 @@ export function ReconciliationView({
           <div className="flex items-center gap-2 pb-2">
             <Filter size={14} className="text-slate-400" />
             <select
+              aria-label={lang === "vi" ? "Lọc theo trạng thái đối soát" : "Nach Prüfstatus filtern"}
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-emerald-950/40 text-slate-700 dark:text-slate-200"
@@ -253,28 +250,28 @@ export function ReconciliationView({
       {activeTab === "reconcile" && (
         <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-emerald-950/20 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm border-collapse">
+            <table className="w-full border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/5 text-slate-600 dark:text-slate-400 text-xs font-semibold">
-                  <th className="py-3.5 px-4">{lang === "vi" ? "Nhân viên & Ngày" : "Mitarbeiter & Tag"}</th>
-                  <th className="py-3.5 px-4">{lang === "vi" ? "Ca kế hoạch (Soll)" : "Soll-Arbeitszeit"}</th>
-                  <th className="py-3.5 px-4">{lang === "vi" ? "Thực tế chấm công (Ist)" : "Ist-Arbeitszeit"}</th>
-                  <th className="py-3.5 px-4">{lang === "vi" ? "Chênh lệch (Delta)" : "Abweichung"}</th>
-                  <th className="py-3.5 px-4">{lang === "vi" ? "Cảnh báo / Ngoại lệ" : "Warnungen / ArbZG"}</th>
-                  <th className="py-3.5 px-4">{lang === "vi" ? "Trạng thái" : "Status"}</th>
-                  <th className="py-3.5 px-4 text-right">{lang === "vi" ? "Thao tác" : "Aktion"}</th>
+                <tr className="border-b border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/5 text-slate-600 dark:text-slate-400 font-semibold">
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Nhân viên & Ngày" : "Mitarbeiter & Tag"}</th>
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Ca kế hoạch (Soll)" : "Soll-Arbeitszeit"}</th>
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Thực tế chấm công (Ist)" : "Ist-Arbeitszeit"}</th>
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Chênh lệch (Delta)" : "Abweichung"}</th>
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Cảnh báo / Ngoại lệ" : "Warnungen / ArbZG"}</th>
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Trạng thái" : "Status"}</th>
+                  <th scope="col" className="py-3.5 px-4">{lang === "vi" ? "Thao tác" : "Aktion"}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
+                    <td colSpan={7} className="py-12 text-slate-400 font-medium">
                       {lang === "vi" ? "Đang tải dữ liệu đối soát..." : "Lade Abgleichdaten..."}
                     </td>
                   </tr>
                 ) : items.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
+                    <td colSpan={7} className="py-12 text-slate-400 font-medium">
                       {lang === "vi" ? "Không có ca làm việc nào trong kỳ đối soát." : "Keine Einträge vorhanden."}
                     </td>
                   </tr>
@@ -283,17 +280,17 @@ export function ReconciliationView({
                     return (
                       <tr key={item.timesheetId} className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition">
                         <td className="py-3.5 px-4">
-                          <div className="font-bold text-slate-900 dark:text-white">
+                          <div className="table-prose font-bold text-slate-900 dark:text-white">
                             {item.employeeName}
                           </div>
-                          <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
-                            <span className="font-mono text-emerald-500 font-semibold">{item.employeeCode}</span>
+                          <div className="text-slate-400 flex items-center gap-2 mt-0.5">
+                            <span className="text-emerald-500 font-semibold">{item.employeeCode}</span>
                             <span>•</span>
                             <span>{item.workDate}</span>
                           </div>
                         </td>
 
-                        <td className="py-3.5 px-4 text-xs font-mono">
+                        <td className="py-3.5 px-4">
                           {item.plannedStartUtc ? (
                             <div>
                               <span className="font-semibold text-slate-800 dark:text-slate-200">
@@ -308,7 +305,7 @@ export function ReconciliationView({
                           )}
                         </td>
 
-                        <td className="py-3.5 px-4 text-xs font-mono">
+                        <td className="py-3.5 px-4">
                           {item.actualStartUtc ? (
                             <div>
                               <span className="font-bold text-slate-900 dark:text-white">
@@ -323,31 +320,31 @@ export function ReconciliationView({
                           )}
                         </td>
 
-                        <td className="py-3.5 px-4 text-xs font-mono">
+                        <td className="py-3.5 px-4">
                           {item.deltaMinutes !== 0 ? (
-                            <span className={`font-bold ${item.deltaMinutes > 0 ? "text-blue-600 dark:text-blue-400" : "text-amber-600 dark:text-amber-400"}`}>
-                              {item.deltaMinutes > 0 ? `+${item.deltaMinutes}m` : `${item.deltaMinutes}m`}
+                            <span className={`font-bold ${item.deltaMinutes> 0 ? "text-blue-600 dark:text-blue-400" : "text-amber-600 dark:text-amber-400"}`}>
+                              {item.deltaMinutes> 0 ? `+${item.deltaMinutes}m` : `${item.deltaMinutes}m`}
                             </span>
                           ) : (
                             <span className="text-emerald-500 font-bold">0m</span>
                           )}
-                          {item.lateMinutes > 0 && (
-                            <div className="text-rose-500 text-[11px] font-semibold mt-0.5">
+                          {item.lateMinutes> 0 && (
+                            <div className="text-rose-500 font-semibold mt-0.5">
                               {lang === "vi" ? `Trễ: ${item.lateMinutes}m` : `Verspätung: ${item.lateMinutes}m`}
                             </div>
                           )}
                         </td>
 
-                        <td className="py-3.5 px-4 text-xs">
-                          {item.exceptions && item.exceptions.length > 0 ? (
+                        <td className="py-3.5 px-4">
+                          {item.exceptions && item.exceptions.length> 0 ? (
                             <div className="space-y-1">
                               {item.exceptions.map((ex) => (
                                 <div
                                   key={ex.exceptionId}
-                                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/40"
+                                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-semibold bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/40"
                                 >
                                   <AlertTriangle size={12} className="text-amber-600" />
-                                  <span>{lang === "vi" ? ex.descriptionVi : ex.descriptionDe}</span>
+                                  <span className="table-prose">{lang === "vi" ? ex.descriptionVi : ex.descriptionDe}</span>
                                 </div>
                               ))}
                             </div>
@@ -361,7 +358,7 @@ export function ReconciliationView({
 
                         <td className="py-3.5 px-4">
                           <span
-                            className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                            className={`px-2.5 py-0.5 rounded-full table-tag font-semibold ${
                               item.status === "APPROVED"
                                 ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300"
                                 : item.status === "LOCKED"
@@ -377,19 +374,22 @@ export function ReconciliationView({
                           </span>
                         </td>
 
-                        <td className="py-3.5 px-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            {item.status !== "APPROVED" && item.status !== "LOCKED" && (
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-2">
+                            {item.status !== "APPROVED" && item.status !== "LOCKED" && (() => {
+                              const isSelfItem = (selfEmployeeId != null && item.employeeId === selfEmployeeId)
+                                || Boolean(currentUserId && (item.employeeId?.toString() === currentUserId || item.employeeCode === currentUserId));
+                              return (
                               <button
-                                disabled={Boolean(currentUserId && (item.employeeId?.toString() === currentUserId || item.employeeCode === currentUserId))}
+                                disabled={isSelfItem}
                                 title={
-                                  Boolean(currentUserId && (item.employeeId?.toString() === currentUserId || item.employeeCode === currentUserId))
+                                  isSelfItem
                                     ? (lang === "vi" ? "Vi phạm SoD: Không thể tự duyệt ca của chính mình" : "SoD: Keine Selbstgenehmigung")
                                     : ""
                                 }
                                 onClick={() => handleApproveDirect(item.timesheetId)}
-                                className={`px-3 py-1.5 rounded-xl font-semibold text-xs shadow-xs inline-flex items-center gap-1.5 transition ${
-                                  Boolean(currentUserId && (item.employeeId?.toString() === currentUserId || item.employeeCode === currentUserId))
+                                className={`px-3 py-1.5 rounded-xl font-semibold shadow-xs inline-flex items-center gap-1.5 transition ${
+                                  isSelfItem
                                     ? "bg-slate-300 dark:bg-white/10 text-slate-400 cursor-not-allowed opacity-60"
                                     : "bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
                                 }`}
@@ -397,10 +397,11 @@ export function ReconciliationView({
                                 <Check size={14} />
                                 <span>{lang === "vi" ? "Duyệt" : "Freigeben"}</span>
                               </button>
-                            )}
+                              );
+                            })()}
                             <button
                               onClick={() => setSelectedItemDetail(item)}
-                              className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-slate-300 text-xs font-semibold transition cursor-pointer"
+                              className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-slate-300 font-semibold transition cursor-pointer"
                             >
                               {lang === "vi" ? "Chi tiết" : "Details"}
                             </button>
@@ -468,15 +469,29 @@ export function ReconciliationView({
                 </div>
 
                 <div className="flex items-center gap-2 self-end md:self-center">
-                  {req.status === "PENDING" || req.status === "HR_ESCALATED" ? (
+                  {req.status === "PENDING" || req.status === "HR_ESCALATED" ? (() => {
+                    const isSelfReq = (selfEmployeeId != null && req.employeeId === selfEmployeeId)
+                      || Boolean(currentUserId && (req.employeeId?.toString() === currentUserId || req.employeeCode === currentUserId));
+                    return (
                     <button
+                      disabled={isSelfReq}
+                      title={
+                        isSelfReq
+                          ? (lang === "vi" ? "Vi phạm SoD: Không thể tự xét duyệt yêu cầu của chính mình" : "SoD: Keine Selbstentscheidung")
+                          : ""
+                      }
                       onClick={() => setSelectedRequestToDecide(req)}
-                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-xs inline-flex items-center gap-1.5 transition cursor-pointer"
+                      className={`px-4 py-2 rounded-xl font-semibold text-xs shadow-xs inline-flex items-center gap-1.5 transition ${
+                        isSelfReq
+                          ? "bg-slate-300 dark:bg-white/10 text-slate-400 cursor-not-allowed opacity-60"
+                          : "bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                      }`}
                     >
                       <Check size={14} />
                       <span>{lang === "vi" ? "Xem xét & Duyệt" : "Prüfen & Entscheiden"}</span>
                     </button>
-                  ) : (
+                    );
+                  })() : (
                     <span
                       className={`px-3 py-1 rounded-full text-xs font-bold ${
                         req.status === "APPROVED"
@@ -539,6 +554,7 @@ function DecideRequestModal({
   onSuccess: () => void;
 }) {
   const { lang } = useI18n();
+  const notify = useNotice();
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -546,10 +562,10 @@ function DecideRequestModal({
     setBusy(true);
     try {
       await api(`/reconciliation/change-requests/${request.requestId}/approve`, "POST", { notes });
-      alert(lang === "vi" ? "Đã phê duyệt điều chỉnh giờ công thành công!" : "Korrekturantrag erfolgreich genehmigt!");
+      notify(lang === "vi" ? "Đã phê duyệt điều chỉnh giờ công thành công!" : "Korrekturantrag erfolgreich genehmigt!");
       onSuccess();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -559,10 +575,10 @@ function DecideRequestModal({
     setBusy(true);
     try {
       await api(`/reconciliation/change-requests/${request.requestId}/reject`, "POST", { notes });
-      alert(lang === "vi" ? "Đã từ chối yêu cầu điều chỉnh giờ công." : "Korrekturantrag abgelehnt.");
+      notify(lang === "vi" ? "Đã từ chối yêu cầu điều chỉnh giờ công." : "Korrekturantrag abgelehnt.");
       onSuccess();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -597,10 +613,10 @@ function DecideRequestModal({
         </div>
 
         <div>
-          <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-            {lang === "vi" ? "Ghi chú phê duyệt / Căn cứ xét duyệt" : "Entscheidungsbegründung"}
-          </label>
-          <textarea
+          <label htmlFor="reconciliation-notes" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Ghi chú phê duyệt / Căn cứ xét duyệt" : "Entscheidungsbegründung"}
+            </label>
+          <textarea id="reconciliation-notes"
             rows={2}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -644,24 +660,25 @@ function PeriodLockingCard({
   branchId,
   onSuccess,
 }: {
-  branchId: number;
+  branchId: string;
   onSuccess: () => void;
 }) {
   const { lang } = useI18n();
-  const [lockDate, setLockDate] = useState(new Date().toISOString().slice(0, 10));
+  const notify = useNotice();
+  const [lockDate, setLockDate] = useState(() => berlinDate());
   const [busy, setBusy] = useState(false);
 
+  const [confirming, setConfirming] = useState(false);
   const handleLock = async () => {
-    if (!confirm(lang === "vi" ? `Xác nhận khóa kỳ công đến hết ngày ${lockDate}? Sau khi khóa sẽ không thể sửa đổi trực tiếp.` : `Konto bis ${lockDate} abschließen?`)) {
-      return;
-    }
+    if (busy || !lockDate) return;
     setBusy(true);
     try {
       await api("/reconciliation/lock-period", "POST", { branchId, lockUpToDate: lockDate });
-      alert(lang === "vi" ? "Đã chốt và khóa kỳ công thành công!" : "Periode erfolgreich gesperrt!");
+      notify(lang === "vi" ? "Đã chốt và khóa kỳ công thành công!" : "Periode erfolgreich gesperrt!");
+      setConfirming(false);
       onSuccess();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -686,10 +703,10 @@ function PeriodLockingCard({
       </div>
 
       <div className="space-y-2">
-        <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 block">
-          {lang === "vi" ? "Khóa đến hết ngày *" : "Stichtag *"}
-        </label>
-        <input
+        <label htmlFor="reconciliation-lockDate" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 block">
+              {lang === "vi" ? "Khóa đến hết ngày *" : "Stichtag *"}
+            </label>
+        <input id="reconciliation-lockDate"
           type="date"
           value={lockDate}
           onChange={(e) => setLockDate(e.target.value)}
@@ -699,14 +716,20 @@ function PeriodLockingCard({
 
       <div className="pt-2">
         <button
-          disabled={busy}
-          onClick={handleLock}
+          disabled={busy || !lockDate || !branchId}
+          onClick={() => setConfirming(true)}
           className="px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 dark:bg-emerald-700 dark:hover:bg-emerald-600 text-white font-semibold text-sm shadow-md transition cursor-pointer flex items-center gap-2 disabled:opacity-50"
         >
           <Lock size={16} />
           <span>{busy ? (lang === "vi" ? "Đang xử lý..." : "Wird gesperrt...") : (lang === "vi" ? "Xác nhận khóa kỳ công" : "Periode sperren")}</span>
         </button>
       </div>
+      {confirming && <Modal open busy={busy} onClose={() => setConfirming(false)}
+        title={lang === "vi" ? "Khóa kỳ chấm công?" : "Periode sperren?"}
+        description={lang === "vi" ? `Các bản ghi đến hết ngày ${lockDate} sẽ được khóa.` : `Die Einträge bis einschließlich ${lockDate} werden gesperrt.`}>
+        <div className="modal-footer"><button className="button button-secondary" disabled={busy} onClick={() => setConfirming(false)}>{lang === "vi" ? "Hủy" : "Abbrechen"}</button>
+        <button className="button" disabled={busy} onClick={handleLock}>{lang === "vi" ? "Khóa kỳ công" : "Periode sperren"}</button></div>
+      </Modal>}
     </div>
   );
 }
@@ -735,7 +758,7 @@ function TimesheetDetailModal({
               {lang === "vi" ? "Ca kế hoạch (Dienstplan)" : "Soll-Plan"}
             </span>
             <div className="font-mono text-sm font-bold text-slate-800 dark:text-slate-200">
-              {item.plannedStartUtc ? `${item.plannedStartUtc.slice(11, 16)} - ${item.plannedEndUtc?.slice(11, 16)}` : "Ngoài lịch"}
+              {item.plannedStartUtc ? `${berlinTime(item.plannedStartUtc)} - ${item.plannedEndUtc ? berlinTime(item.plannedEndUtc) : "—"}` : "Ngoài lịch"}
             </div>
             <div className="text-slate-500 mt-1">{item.plannedBreakMinutes}m nghỉ quy định</div>
           </div>
@@ -745,7 +768,7 @@ function TimesheetDetailModal({
               {lang === "vi" ? "Thực tế quẹt thẻ" : "Ist-Erfassung"}
             </span>
             <div className="font-mono text-sm font-bold text-slate-800 dark:text-slate-200">
-              {item.actualStartUtc ? `${item.actualStartUtc.slice(11, 16)} - ${item.actualEndUtc?.slice(11, 16)}` : "Chưa có giờ ra"}
+              {item.actualStartUtc ? `${berlinTime(item.actualStartUtc)} - ${item.actualEndUtc ? berlinTime(item.actualEndUtc) : "—"}` : "Chưa có giờ ra"}
             </div>
             <div className="text-slate-500 mt-1">{item.actualBreakMinutes}m nghỉ thực tế</div>
           </div>

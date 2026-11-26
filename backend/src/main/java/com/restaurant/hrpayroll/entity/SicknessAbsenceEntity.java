@@ -47,8 +47,8 @@ public class SicknessAbsenceEntity {
   @Column(name = "notes", length = 500)
   public String notes;
 
-  @Column(name = "recorded_by_user_id")
-  public Long recordedByUserId;
+  @Column(name = "recorded_by_user_id", length = 255)
+  public String recordedByUserId;
 
   @Column(name = "created_at_utc", nullable = false)
   public Instant createdAtUtc = Instant.now();

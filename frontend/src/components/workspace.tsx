@@ -22,7 +22,6 @@ import {
   LogOut,
   MapPin,
   Monitor,
-  MoreHorizontal,
   Pencil,
   Plus,
   RefreshCw,
@@ -42,13 +41,13 @@ import {
   type Branch,
   type Role,
   type Session,
-  type SodRule,
+  type SodMatrix,
   type User,
   type Workspace,
 } from "../lib/api";
 import type { Page } from "../App";
 import type { Editor } from "./editor";
-import { Empty, Modal, Press, Scene, Status } from "./experience";
+import { EditButton, Empty, Modal, Press, Scene, Status } from "./experience";
 import { MfaGate } from "./auth";
 import { useI18n } from "../lib/i18n";
 
@@ -56,307 +55,322 @@ export function Overview({
   data,
   navigate,
   onBranch,
+  onEdit,
 }: {
   data: Workspace;
   navigate: (p: Page) => void;
   onBranch: (id: string) => void;
+  onEdit?: (branch: Branch) => void;
 }) {
   const { lang } = useI18n();
+  const vi = lang === "vi";
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const org = data.permissions.includes("org.read");
+  const personnel = data.permissions.includes("workforce.read");
+  const day = today();
+  const managerNames = new Map(data.managerOptions.map((m) => [m.id, m.name]));
+  const managers = new Map<string, Set<string>>();
+  for (const assignment of data.managerAssignments) {
+    if (!activeOn(assignment, day)) continue;
+    const ids = managers.get(assignment.branchId) ?? new Set<string>();
+    ids.add(assignment.managerId);
+    managers.set(assignment.branchId, ids);
+  }
+  const teams = new Map<string, Set<string>>();
+  const assigned = new Set<string>();
+  for (const assignment of data.assignments) {
+    if (!activeOn(assignment, day)) continue;
+    const team = teams.get(assignment.branchId) ?? new Set<string>();
+    team.add(assignment.employeeId);
+    teams.set(assignment.branchId, team);
+    assigned.add(assignment.employeeId);
+  }
   const active = data.branches.filter((b) => b.active);
-  const assigned = new Set(
-    data.assignments.filter((a) => activeOn(a)).map((a) => a.employeeId),
-  ).size;
-  const stats = [
+  const missing = active.filter((b) => !managers.has(b.id)).length;
+  const search = query.trim().toLocaleLowerCase(lang);
+  const rows = data.branches
+    .filter(
+      (b) =>
+        (filter !== "missing" || (b.active && !managers.has(b.id))) &&
+        [b.name, b.code, b.city].some((value) =>
+          value.toLocaleLowerCase(lang).includes(search),
+        ),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name, lang));
+  const metrics = [
     {
-      title: lang === "vi" ? "Chi nhánh nhà hàng" : "Niederlassungen",
-      value: active.length,
+      show: org,
       icon: Building2,
-      note: lang === "vi" ? `${data.branches.length} chi nhánh tổng cộng` : `${data.branches.length} Standorte insgesamt`,
-      color: "mint",
+      label: vi ? "Chi nhánh hoạt động" : "Aktive Niederlassungen",
+      value: active.length,
+      note: vi
+        ? `Trong tổng số ${data.branches.length} chi nhánh`
+        : `Von ${data.branches.length} Niederlassungen`,
     },
     {
-      title: lang === "vi" ? "Thành viên nhân sự" : "Teammitglieder",
-      value: data.employees.length,
+      show: personnel,
       icon: Users,
-      note: lang === "vi" ? `${assigned} đang được phân công` : `${assigned} aktuell zugeordnet`,
-      color: "peach",
+      label: vi ? "Nhân sự được phân công" : "Zugeordnete Mitarbeitende",
+      value: assigned.size,
+      note: vi ? "Phân công có hiệu lực hôm nay" : "Heute gültige Zuordnungen",
     },
     {
-      title: lang === "vi" ? "Pháp nhân" : "Rechtseinheiten",
-      value: data.entities.filter((e) => e.active).length,
+      show: org,
       icon: Globe2,
-      note: lang === "vi" ? "Cơ cấu doanh nghiệp chung" : "Eine gemeinsame Struktur",
-      color: "violet",
+      label: vi ? "Pháp nhân hoạt động" : "Aktive Rechtseinheiten",
+      value: data.entities.filter((e) => e.active).length,
+      note: vi
+        ? `Trong tổng số ${data.entities.length} pháp nhân`
+        : `Von ${data.entities.length} Rechtseinheiten`,
     },
     {
-      title: lang === "vi" ? "Địa điểm làm việc" : "Arbeitsorte",
-      value: data.locations.filter((l) => l.active).length,
+      show: org,
       icon: MapPin,
-      note: lang === "vi" ? "Theo địa điểm thực tế" : "Standortgenau organisiert",
-      color: "blue",
+      label: vi ? "Địa điểm hoạt động" : "Aktive Arbeitsorte",
+      value: data.locations.filter((l) => l.active).length,
+      note: vi
+        ? `Trong tổng số ${data.locations.length} địa điểm`
+        : `Von ${data.locations.length} Arbeitsorten`,
     },
-  ];
+  ].filter((metric) => metric.show);
   return (
-    <>
-      <section className="welcome-hero reveal">
-        <div className="welcome-copy">
-          <div className="pill">
-            <span className="status-dot" /> {lang === "vi" ? "KẾT NỐI NHÂN SỰ" : "MENSCHEN VERBINDEN"}
-          </div>
-          <h2>
-            {lang === "vi" ? (
-              <>
-                Sự hiếu khách tuyệt vời
-                <br />
-                bắt đầu từ một đội ngũ vững mạnh.
-              </>
-            ) : (
-              <>
-                Große Gastfreundschaft
-                <br />
-                beginnt mit einem guten Team.
-              </>
-            )}
-          </h2>
-          <p>
-            {lang === "vi" ? (
-              <>
-                Quản lý minh bạch và gắn kết đội ngũ
-                <br className="desktop-break" /> tại mọi chi nhánh trong chuỗi nhà hàng của bạn.
-              </>
-            ) : (
-              <>
-                Schaffen Sie Klarheit für die Menschen und Orte,
-                <br className="desktop-break" /> die Ihr Unternehmen besonders
-                machen.
-              </>
-            )}
-          </p>
-          <button
-            onClick={() =>
-              navigate(
-                data.permissions.includes("org.read") ? "branches" : "security",
-              )
-            }
-          >
-            {lang === "vi" ? "Khám phá không gian làm việc" : "Ihren Arbeitsbereich entdecken"} <ArrowUpRight size={17} />
-          </button>
-          <div className="hero-caption">
-            <span className="mini-avatars">
-              {data.employees.slice(0, 3).map((e) => (
-                <i key={e.id}>{initials(e.name)}</i>
-              ))}
-            </span>
-            <span>
-              {data.employees.length
-                ? (lang === "vi" ? `${data.employees.length} thành viên. Cùng một mục tiêu chung.` : `${data.employees.length} Menschen. Ein gemeinsames Ziel.`)
-                : (lang === "vi" ? "Tổ chức chặt chẽ. Kết nối an toàn." : "Gut organisiert. Sicher verbunden.")}
-            </span>
-          </div>
-        </div>
-        <Scene />
-      </section>
-      <section className="stat-grid">
-        {stats.map((s) => (
-          <div className="stat-card reveal" key={s.title}>
-            <div className="stat-top">
-              <span>{s.title}</span>
-              <span className={`stat-icon tone-${s.color}`}>
-                <s.icon size={18} />
-              </span>
+    <div className="ops-overview">
+      {metrics.length > 0 && (
+        <dl className="ops-metrics">
+          {metrics.map(({ icon: Icon, label, value, note }) => (
+            <div className="ops-metric" key={label}>
+              <dt>
+                <Icon size={16} aria-hidden="true" />
+                {label}
+              </dt>
+              <dd>
+                {value.toLocaleString(lang)}
+                <small>{note}</small>
+              </dd>
             </div>
-            <div className="stat-number">
-              {s.value.toString().padStart(2, "0")}
-              <span className="stat-decoration">↗</span>
-            </div>
-            <small>
-              <span className="tiny-dot" />
-              {s.note}
-            </small>
+          ))}
+        </dl>
+      )}
+      {org ? (
+        <section className="ops-panel" aria-labelledby="branch-overview-title">
+          <div className="ops-panel-heading">
+            <h2 id="branch-overview-title">
+              {vi ? "Tình hình chi nhánh" : "Standortübersicht"}
+            </h2>
+            <button className="ops-link" onClick={() => navigate("branches")}>
+              {vi ? "Quản lý chi nhánh" : "Niederlassungen verwalten"}{" "}
+              <ArrowRight size={15} />
+            </button>
           </div>
-        ))}
-      </section>
-      {data.permissions.includes("org.read") ? (
-        <div className="overview-grid">
-          <section className="panel reveal">
-            <div className="panel-heading">
-              <div>
-                <h2>
-                  {lang === "vi" ? "Chi nhánh nhà hàng" : "Ihre Niederlassungen"}{" "}
-                  <span className="count">{data.branches.length}</span>
-                </h2>
-                <p>{lang === "vi" ? "Địa điểm và trạng thái hoạt động." : "Gastfreundschaft hat viele Adressen."}</p>
-              </div>
+          <div className="ops-tools">
+            <div
+              className="ops-filters"
+              role="group"
+              aria-label={vi ? "Lọc chi nhánh" : "Niederlassungen filtern"}
+            >
               <button
-                className="text-button"
-                onClick={() => navigate("branches")}
+                aria-pressed={filter === "all"}
+                onClick={() => setFilter("all")}
               >
-                {lang === "vi" ? "Xem tất cả" : "Alle ansehen"} <ArrowUpRight size={15} />
+                {vi ? "Tất cả" : "Alle"} <span>{data.branches.length}</span>
+              </button>
+              <button
+                aria-pressed={filter === "missing"}
+                onClick={() => setFilter("missing")}
+                title={
+                  vi
+                    ? "Chi nhánh hoạt động chưa có người quản lý hôm nay"
+                    : "Aktive Niederlassungen ohne heutige Leitung"
+                }
+              >
+                {vi ? "Cần phân công quản lý" : "Leitung fehlt"}{" "}
+                <span>{missing}</span>
               </button>
             </div>
-            <div className="table-scroll">
-              <table className="branch-table">
+            <label className="ops-search">
+              <Search size={16} />
+              <input
+                type="search"
+                aria-label={vi ? "Tìm chi nhánh" : "Niederlassung suchen"}
+                placeholder={
+                  vi ? "Tên, mã hoặc thành phố" : "Name, Kürzel oder Stadt"
+                }
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </label>
+          </div>
+          {rows.length > 0 ? (
+            <div
+              className="ops-table-scroll"
+              role="region"
+              tabIndex={0}
+              aria-labelledby="branch-overview-title"
+            >
+              <table className="ops-table">
+                <colgroup>
+                  <col className="ops-col-branch" />
+                  <col className="ops-col-city" />
+                  <col className="ops-col-manager" />
+                  {personnel && <col className="ops-col-team" />}
+                  <col className="ops-col-status" />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th>{lang === "vi" ? "Chi nhánh" : "Standort"}</th>
-                    <th>{lang === "vi" ? "Nhân sự" : "Team"}</th>
-                    <th>{lang === "vi" ? "Trạng thái" : "Status"}</th>
-                    <th />
+                    <th scope="col">{vi ? "Chi nhánh" : "Niederlassung"}</th>
+                    <th scope="col">{vi ? "Thành phố" : "Stadt"}</th>
+                    <th scope="col">
+                      {vi ? "Quản lý phụ trách" : "Standortleitung"}
+                    </th>
+                    {personnel && (
+                      <th scope="col" className="ops-number">
+                        {vi
+                          ? "Nhân sự được phân công"
+                          : "Zugeordnete Mitarbeitende"}
+                      </th>
+                    )}
+                    <th scope="col" className="ops-row-status">{vi ? "Trạng thái" : "Status"}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.branches.slice(0, 4).map((b) => (
-                    <tr key={b.id}>
-                      <td>
-                        <button
-                          className="table-identity row-button"
-                          onClick={() => onBranch(b.id)}
-                        >
-                          <span className={`branch-icon tone-${b.accent}`}>
-                            <Building2 size={20} />
+                  {rows.map((b) => {
+                    const ids = managers.get(b.id);
+                    const names =
+                      ids &&
+                      Array.from(
+                        ids,
+                        (id) =>
+                          managerNames.get(id) ??
+                          (vi ? "Đã phân công" : "Zugeordnet"),
+                      );
+                    return (
+                      <tr key={b.id}>
+                        <td>
+                          <button
+                            className="ops-branch table-prose"
+                            onClick={() => onBranch(b.id)}
+                          >
+                            {b.name}
+                          </button>
+                          <div className="branch-record-meta">
+                            <small className="ops-code">{b.code}</small>
+                            {onEdit && data.permissions.includes("org.write") &&
+                              <EditButton name={b.name} onClick={() => onEdit(b)} />}
+                          </div>
+                        </td>
+                        <td>
+                          <span className="ops-mobile-label" aria-hidden="true">
+                            {vi ? "Thành phố" : "Stadt"}
                           </span>
-                          <span>
-                            <b>{b.name}</b>
-                            <small>
-                              <MapPin size={11} /> {b.city} · {b.code}
-                            </small>
+                          {b.city}
+                        </td>
+                        <td>
+                          <span className="ops-mobile-label" aria-hidden="true">
+                            {vi ? "Quản lý" : "Leitung"}
                           </span>
-                        </button>
-                      </td>
-                      <td>
-                        <span className="team-count">
-                          <Users size={14} />{" "}
-                          {
-                            new Set(
-                              data.assignments
-                                .filter(
-                                  (a) => a.branchId === b.id && activeOn(a),
-                                )
-                                .map((a) => a.employeeId),
-                            ).size
-                          }
-                        </span>
-                      </td>
-                      <td>
-                        <Status active={b.active} />
-                      </td>
-                      <td>
-                        <button
-                          className="icon-button"
-                          aria-label={`${b.name} öffnen`}
-                          onClick={() => onBranch(b.id)}
-                        >
-                          <ArrowUpRight size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          {names ? (
+                            <span className="table-prose">{names.join(", ")}</span>
+                          ) : (
+                            <span
+                              className={b.active ? "ops-missing" : "ops-no-manager"}
+                            >
+                              {vi ? "Chưa phân công" : "Nicht zugeordnet"}
+                            </span>
+                          )}
+                        </td>
+                        {personnel && (
+                          <td className="ops-number">
+                            <span
+                              className="ops-mobile-label"
+                              aria-hidden="true"
+                            >
+                              {vi
+                                ? "Nhân sự được phân công"
+                                : "Zugeordnete Mitarbeitende"}
+                            </span>
+                            {teams.get(b.id)?.size ?? 0}
+                          </td>
+                        )}
+                        <td className="ops-row-status">
+                          <Status active={b.active} />
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-            {!data.branches.length && (
-              <Empty
-                title={lang === "vi" ? "Bắt đầu thiết lập tổ chức" : "Hier beginnt Ihre Organisation"}
-                text={lang === "vi" ? "Các chi nhánh đầu tiên của bạn sẽ xuất hiện tại đây." : "Ihre ersten Niederlassungen erscheinen hier."}
-              />
-            )}
-          </section>
-          <section className="panel network-panel reveal">
-            <div className="panel-heading">
-              <div>
-                <h2>{lang === "vi" ? "Mạng lưới cơ sở" : "Überall ein Zuhause."}</h2>
-                <p>{lang === "vi" ? "Mạng lưới chi nhánh của bạn tại Đức" : "Ihr Standortnetz in Deutschland"}</p>
-              </div>
-              <span className="map-icon">
-                <Globe2 size={17} />
-              </span>
+          ) : (
+            <div className="ops-empty">
+              <strong>
+                {!data.branches.length
+                  ? vi
+                    ? "Chưa có chi nhánh trong phạm vi của bạn"
+                    : "Keine Niederlassungen in Ihrem Bereich"
+                  : vi
+                    ? "Không có chi nhánh phù hợp"
+                    : "Keine passenden Niederlassungen"}
+              </strong>
+              {(query || filter !== "all") && (
+                <button
+                  className="ops-link"
+                  onClick={() => {
+                    setQuery("");
+                    setFilter("all");
+                  }}
+                >
+                  {vi ? "Xóa bộ lọc" : "Filter zurücksetzen"}
+                </button>
+              )}
             </div>
-            <NetworkMap branches={data.branches} onBranch={onBranch} />
-            <div className="network-footer">
-              <span>
-                <i /> {active.length} {lang === "vi" ? "chi nhánh đang hoạt động" : "aktive Niederlassungen"}
-              </span>
-              <span>
-                {new Set(data.branches.map((b) => b.stateCode)).size}{" "}
-                {lang === "vi" ? "Bang (Đức)" : "Bundesländer"}
-              </span>
-            </div>
-          </section>
-        </div>
-      ) : (
-        <div className="panel reveal employee-welcome">
-          <ShieldCheck size={32} />
-          <div>
-            <h2>{lang === "vi" ? "Chào mừng bạn đến với không gian làm việc cá nhân." : "Willkommen in Ihrem persönlichen Arbeitsbereich."}</h2>
-            <p>
-              {lang === "vi"
-                ? "Tại đây bạn quản lý phiên đăng nhập và bảo mật tài khoản. Dữ liệu nhân sự và chi nhánh chỉ hiển thị cho các vai trò được phân quyền."
-                : "Hier verwalten Sie Ihre Anmeldung und Sitzungen. Personaldaten und Standorte sind nur für berechtigte Rollen sichtbar."}
-            </p>
+          )}
+          <div className="ops-foot" role="status">
+            {vi
+              ? `Hiển thị ${rows.length} / ${data.branches.length} chi nhánh`
+              : `${rows.length} von ${data.branches.length} Niederlassungen`}
           </div>
-          <Press onClick={() => navigate("security")}>
-            {lang === "vi" ? "Bảo mật tài khoản" : "Meine Sicherheit"} <ArrowRight size={16} />
-          </Press>
-        </div>
+        </section>
+      ) : (
+        <section className="ops-panel">
+          <div className="ops-panel-heading">
+            <h2>{vi ? "Công việc của tôi" : "Mein Arbeitsbereich"}</h2>
+          </div>
+          <div className="ops-shortcuts">
+            <button onClick={() => navigate("attendance")}>
+              <Clock3 size={18} />
+              {vi ? "Chấm công" : "Zeiterfassung"}
+              <ArrowRight size={15} />
+            </button>
+            <button onClick={() => navigate("leave")}>
+              <CalendarDays size={18} />
+              {vi ? "Nghỉ phép" : "Abwesenheiten"}
+              <ArrowRight size={15} />
+            </button>
+            <button onClick={() => navigate("security")}>
+              <Fingerprint size={18} />
+              {vi ? "Bảo mật tài khoản" : "Kontosicherheit"}
+              <ArrowRight size={15} />
+            </button>
+          </div>
+        </section>
       )}
-      <div className="overview-bottom">
-        <section className="panel reveal">
-          <div className="panel-heading">
-            <div>
-              <h2>{lang === "vi" ? "Hoạt động gần đây" : "Was sich bewegt"}</h2>
-              <p>{lang === "vi" ? "Những cập nhật mới nhất trong không gian làm việc của bạn" : "Die letzten Änderungen in Ihrem Arbeitsbereich"}</p>
-            </div>
-            {data.permissions.includes("audit.read") && (
-              <button
-                className="icon-button"
-                aria-label={lang === "vi" ? "Tất cả hoạt động" : "Alle Aktivitäten"}
-                onClick={() => navigate("activity")}
-              >
-                <ArrowUpRight size={17} />
-              </button>
-            )}
+      {data.permissions.includes("audit.read") && (
+        <section className="ops-panel">
+          <div className="ops-panel-heading">
+            <h2>{vi ? "Hoạt động gần đây" : "Letzte Aktivitäten"}</h2>
+            <button className="ops-link" onClick={() => navigate("activity")}>
+              {vi ? "Xem nhật ký" : "Protokoll öffnen"}
+              <ArrowRight size={15} />
+            </button>
           </div>
           <Activity data={data} limit={3} />
         </section>
-        <section className="access-summary reveal">
-          <div className="access-orb">
-            <ShieldCheck size={29} />
-          </div>
-          <div className="eyebrow">{lang === "vi" ? "HỢP TÁC AN TOÀN" : "SICHER ZUSAMMENARBEITEN"}</div>
-          <h2>
-            {lang === "vi" ? (
-              <>
-                Tin cậy bắt nguồn từ
-                <br />
-                quyền hạn rõ ràng.
-              </>
-            ) : (
-              <>
-                Vertrauen braucht
-                <br />
-                klare Zugriffe.
-              </>
-            )}
-          </h2>
-          <p>
-            {lang === "vi"
-              ? "Vai trò của bạn xác định dữ liệu bạn được xem và quản lý. Các quyền hạn nhạy cảm luôn được bảo vệ nghiêm ngặt."
-              : "Ihre Rolle bestimmt, was Sie sehen und verwalten. Sensible Zugriffe bleiben geschützt."}
-          </p>
-          <button
-            onClick={() =>
-              navigate(
-                data.permissions.includes("iam.read") ? "access" : "security",
-              )
-            }
-          >
-            {lang === "vi" ? "Kiểm tra quyền truy cập" : "Zugriffe im Blick"} <ArrowUpRight size={16} />
-          </button>
-        </section>
-      </div>
-    </>
+      )}
+    </div>
   );
 }
+
 function NetworkMap({
   branches,
   onBranch,
@@ -407,7 +421,7 @@ function NetworkMap({
             className={`map-pin pin-${b.city.toLowerCase()}`}
             style={{ left: `${xy[0]}%`, top: `${xy[1]}%` }}
             onClick={() => onBranch(b.id)}
-            aria-label={`${b.name} auf der Karte öffnen`}
+            aria-label={lang === "vi" ? `Mở ${b.name}` : `${b.name} auf der Karte öffnen`}
           >
             <span />
             <small>{b.city}</small>
@@ -419,6 +433,7 @@ function NetworkMap({
     </div>
   );
 }
+
 export function OrganizationTree({
   data,
   onBranch,
@@ -568,17 +583,11 @@ export function OrganizationTree({
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <Status active={b.active} />
                         {data.permissions.includes("org.write") && (
-                          <button
-                            className="icon-button"
-                            aria-label={`${b.name} bearbeiten`}
-                            onClick={() => onEdit(b)}
-                          >
-                            <MoreHorizontal size={17} />
-                          </button>
+                          <EditButton name={b.name} onClick={() => onEdit(b)} />
                         )}
                         <button
                           className="icon-button"
-                          aria-label={`${b.name} öffnen`}
+                          aria-label={lang === "vi" ? `Mở ${b.name}` : `${b.name} öffnen`}
                           onClick={() => onBranch(b.id)}
                         >
                           <ArrowUpRight size={17} />
@@ -651,7 +660,7 @@ export function BranchList({
   const [search, setSearch] = useState("");
   const [state, setState] = useState("");
   const [status, setStatus] = useState("all");
-  const [viewMode, setViewMode] = useState<"grid" | "list" | "tree">("grid");
+  const [viewMode, setViewMode] = useState<"grid" | "list" | "tree">("list");
   const branches = data.branches
     .filter(
       (b) =>
@@ -668,7 +677,7 @@ export function BranchList({
         <div className="search-field">
           <Search size={17} />
           <input
-            aria-label="Niederlassungen suchen"
+            aria-label={lang === "vi" ? "Tìm kiếm chi nhánh" : "Niederlassungen suchen"}
             placeholder={lang === "vi" ? "Tìm theo tên chi nhánh hoặc thành phố …" : "Standort oder Stadt suchen …"}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -676,7 +685,7 @@ export function BranchList({
         </div>
         <div className="list-filters">
           <select
-            aria-label="Bundesland filtern"
+            aria-label={lang === "vi" ? "Lọc theo bang" : "Bundesland filtern"}
             value={state}
             onChange={(e) => setState(e.target.value)}
           >
@@ -688,7 +697,7 @@ export function BranchList({
             ))}
           </select>
           <select
-            aria-label="Status filtern"
+            aria-label={lang === "vi" ? "Lọc theo trạng thái" : "Status filtern"}
             value={status}
             onChange={(e) => setStatus(e.target.value)}
           >
@@ -698,7 +707,7 @@ export function BranchList({
           </select>
           <div className="view-toggle">
             <button
-              aria-label="Rasteransicht"
+              aria-label={lang === "vi" ? "Dạng lưới" : "Rasteransicht"}
               aria-pressed={viewMode === "grid"}
               className={viewMode === "grid" ? "selected" : ""}
               onClick={() => setViewMode("grid")}
@@ -707,7 +716,7 @@ export function BranchList({
               <LayoutGrid size={17} />
             </button>
             <button
-              aria-label="Listenansicht"
+              aria-label={lang === "vi" ? "Dạng danh sách" : "Listenansicht"}
               aria-pressed={viewMode === "list"}
               className={viewMode === "list" ? "selected" : ""}
               onClick={() => setViewMode("list")}
@@ -716,7 +725,7 @@ export function BranchList({
               <List size={18} />
             </button>
             <button
-              aria-label="Organisationsbaum"
+              aria-label={lang === "vi" ? "Cây tổ chức" : "Organisationsbaum"}
               aria-pressed={viewMode === "tree"}
               className={viewMode === "tree" ? "selected" : ""}
               onClick={() => setViewMode("tree")}
@@ -727,12 +736,13 @@ export function BranchList({
           </div>
         </div>
       </div>
-      <div className="results-caption">
-        {branches.length} {lang === "vi" ? "chi nhánh" : "Niederlassungen"} <span>{lang === "vi" ? "Sắp xếp theo tên A-Z" : "Nach Name sortiert"}</span>
+      <div className="results-caption" role="status">
+        {branches.length} / {data.branches.length} {lang === "vi" ? "chi nhánh" : "Niederlassungen"} <span>{lang === "vi" ? "Sắp xếp theo tên A-Z" : "Nach Name sortiert"}</span>
       </div>
 
       {viewMode === "tree" ? (
-        <OrganizationTree data={data} onBranch={onBranch} onEdit={onEdit} />
+        <OrganizationTree data={{ ...data, branches, entities: (search || state || status !== "all")
+          ? data.entities.filter((entity) => branches.some((b) => b.legalEntityId === entity.id)) : data.entities }} onBranch={onBranch} onEdit={onEdit} />
       ) : viewMode === "grid" ? (
         <div className="branch-grid">
           {branches.map((b) => (
@@ -742,7 +752,7 @@ export function BranchList({
             >
               <button
                 className="branch-art"
-                aria-label={`${b.name} öffnen`}
+                aria-label={lang === "vi" ? `Mở ${b.name}` : `${b.name} öffnen`}
                 onClick={() => onBranch(b.id)}
               >
                 <span className="branch-code">{b.code}</span>
@@ -757,13 +767,7 @@ export function BranchList({
                     <h2>{b.name}</h2>
                   </button>
                   {data.permissions.includes("org.write") && (
-                    <button
-                      className="icon-button"
-                      aria-label={`${b.name} bearbeiten`}
-                      onClick={() => onEdit(b)}
-                    >
-                      <MoreHorizontal size={19} />
-                    </button>
+                    <EditButton name={b.name} onClick={() => onEdit(b)} />
                   )}
                 </div>
                 <p>
@@ -771,7 +775,7 @@ export function BranchList({
                   {b.city} · {data.states[b.stateCode]}
                 </p>
                 <div className="branch-card-footer">
-                  <span>
+                  {data.permissions.includes("workforce.read") && <span>
                     <Users size={15} />
                     {
                       new Set(
@@ -781,7 +785,7 @@ export function BranchList({
                       ).size
                     }{" "}
                     {lang === "vi" ? "nhân sự" : "im Team"}
-                  </span>
+                  </span>}
                   <Status active={b.active} />
                 </div>
               </div>
@@ -793,11 +797,11 @@ export function BranchList({
           <table>
             <thead>
               <tr>
-                <th>{lang === "vi" ? "Chi nhánh" : "Niederlassung"}</th>
-                <th>{lang === "vi" ? "Vùng bang" : "Bundesland"}</th>
-                <th>{lang === "vi" ? "Địa điểm làm việc" : "Arbeitsorte"}</th>
-                <th>{lang === "vi" ? "Trạng thái" : "Status"}</th>
-                <th />
+                <th scope="col">{lang === "vi" ? "Chi nhánh" : "Niederlassung"}</th>
+                <th scope="col">{lang === "vi" ? "Vùng bang" : "Bundesland"}</th>
+                <th scope="col">{lang === "vi" ? "Địa điểm làm việc" : "Arbeitsorte"}</th>
+                <th scope="col">{lang === "vi" ? "Trạng thái" : "Status"}</th>
+                <th scope="col">{lang === "vi" ? "Thao tác" : "Aktionen"}</th>
               </tr>
             </thead>
             <tbody>
@@ -827,13 +831,13 @@ export function BranchList({
                     <Status active={b.active} />
                   </td>
                   <td>
-                    <button
-                      className="icon-button"
-                      aria-label={`${b.name} öffnen`}
-                      onClick={() => onBranch(b.id)}
-                    >
-                      <ArrowUpRight size={18} />
-                    </button>
+                    <div className="row-actions">
+                      <button className="record-action" onClick={() => onBranch(b.id)}
+                        aria-label={lang === "vi" ? `Chi tiết ${b.name}` : `Details zu ${b.name}`}>
+                        {lang === "vi" ? "Chi tiết" : "Details"} <ArrowUpRight size={14} />
+                      </button>
+                      {data.permissions.includes("org.write") && <EditButton name={b.name} onClick={() => onEdit(b)} />}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -841,6 +845,10 @@ export function BranchList({
           </table>
         </div>
       )}
+      {branches.length > 0 && <details className="ops-map">
+        <summary>{lang === "vi" ? "Sơ đồ mạng lưới chi nhánh" : "Schematische Standortübersicht"}</summary>
+        <NetworkMap branches={branches} onBranch={onBranch} />
+      </details>}
       {!branches.length && (
         <Empty
           title={lang === "vi" ? "Không tìm thấy chi nhánh nào" : "Kein Standort gefunden"}
@@ -973,7 +981,7 @@ export function People({
         <div className="search-field">
           <Search size={17} />
           <input
-            aria-label="Team suchen"
+            aria-label={lang === "vi" ? "Tìm kiếm nhân sự" : "Team suchen"}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={lang === "vi" ? "Tìm kiếm nhân sự …" : "Menschen finden …"}
@@ -981,7 +989,7 @@ export function People({
         </div>
         <select
           value={branch}
-          aria-label="Team nach Standort filtern"
+          aria-label={lang === "vi" ? "Lọc nhân sự theo chi nhánh" : "Team nach Standort filtern"}
           onChange={(e) => setBranch(e.target.value)}
         >
           <option value="">{lang === "vi" ? "Tất cả chi nhánh" : "Alle Niederlassungen"}</option>
@@ -1006,11 +1014,11 @@ export function People({
           <table>
             <thead>
               <tr>
-                <th>{lang === "vi" ? "Thành viên" : "Teammitglied"}</th>
-                <th>{lang === "vi" ? "Chi nhánh gốc" : "Stammniederlassung"}</th>
-                <th>{lang === "vi" ? "Địa điểm làm việc hiện tại" : "Aktueller Arbeitsort"}</th>
-                <th>{lang === "vi" ? "Thời hạn" : "Zeitraum"}</th>
-                <th>{lang === "vi" ? "Thao tác" : "Aktionen"}</th>
+                <th scope="col">{lang === "vi" ? "Thành viên" : "Teammitglied"}</th>
+                <th scope="col">{lang === "vi" ? "Chi nhánh gốc" : "Stammniederlassung"}</th>
+                <th scope="col">{lang === "vi" ? "Địa điểm làm việc hiện tại" : "Aktueller Arbeitsort"}</th>
+                <th scope="col">{lang === "vi" ? "Thời hạn" : "Zeitraum"}</th>
+                <th scope="col">{lang === "vi" ? "Thao tác" : "Aktionen"}</th>
               </tr>
             </thead>
             <tbody>
@@ -1044,7 +1052,7 @@ export function People({
                                 ?.city
                             }
                           </b>
-                          <small className="block muted">
+                          <small className="table-prose muted">
                             {
                               data.locations.find(
                                 (l) => l.id === a.workLocationId,
@@ -1072,7 +1080,7 @@ export function People({
                       <div className="row-actions">
                         <button
                           className="icon-button"
-                          aria-label={`Historie ${e.name}`}
+                          aria-label={lang === "vi" ? `Lịch sử phân công của ${e.name}` : `Historie ${e.name}`}
                           onClick={() => onHistory(e.id)}
                         >
                           <Clock3 size={16} />
@@ -1081,14 +1089,14 @@ export function People({
                           <>
                             <button
                               className="icon-button"
-                              aria-label={`${e.name} zuordnen`}
+                              aria-label={lang === "vi" ? `Phân công ${e.name}` : `${e.name} zuordnen`}
                               onClick={() => onAssign(e.id)}
                             >
                               <ArrowLeftRight size={16} />
                             </button>
                             {a && !a.validTo && (
                               <button
-                                className="text-button small"
+                                className="text-button"
                                 onClick={() => onEnd(a)}
                               >
                                 {lang === "vi" ? "Kết thúc" : "Beenden"}
@@ -1118,6 +1126,142 @@ export function People({
     </>
   );
 }
+const permissionNames: Record<string, { vi: string; de: string }> = {
+  "org.read": { vi: "Xem cơ cấu tổ chức", de: "Organisation lesen" },
+  "org.write": {
+    vi: "Quản lý pháp nhân và chi nhánh",
+    de: "Organisation verwalten",
+  },
+  "workforce.read": { vi: "Xem danh sách nhân viên", de: "Personal lesen" },
+  "workforce.write": {
+    vi: "Quản lý hồ sơ nhân viên",
+    de: "Personal verwalten",
+  },
+  "schedule.read": { vi: "Xem lịch ca", de: "Dienstplan lesen" },
+  "schedule.write": { vi: "Quản lý lịch ca", de: "Dienstplan verwalten" },
+  "allowance.read": { vi: "Xem phụ cấp", de: "Zuschläge lesen" },
+  "allowance.write": { vi: "Quản lý phụ cấp", de: "Zuschläge verwalten" },
+  "assignment.write": {
+    vi: "Phân công và điều chuyển",
+    de: "Einsätze zuordnen",
+  },
+  "iam.read": { vi: "Xem tài khoản", de: "Konten lesen" },
+  "iam.write": { vi: "Quản lý tài khoản", de: "Konten verwalten" },
+  "audit.read": { vi: "Xem nhật ký hoạt động", de: "Audit-Protokoll lesen" },
+};
+
+function PermissionMatrix({ initialRole }: { initialRole: Role }) {
+  const { lang, roleName } = useI18n();
+  const [selected, setSelected] = useState<string>(initialRole);
+  const [permissions, setPermissions] = useState<
+    SodMatrix["rolePermissions"] | null
+  >(null);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let current = true;
+    api<SodMatrix>("/iam/sod-matrix")
+      .then((matrix) => {
+        if (current) setPermissions(matrix.rolePermissions);
+      })
+      .catch((e: Error) => {
+        if (current) setError(e.message);
+      });
+    return () => {
+      current = false;
+    };
+  }, [attempt]);
+  if (error)
+    return (
+      <div role="alert" className="form-error">
+        {error}{" "}
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => {
+            setError("");
+            setAttempt((n) => n + 1);
+          }}
+        >
+          {lang === "vi" ? "Thử lại" : "Erneut laden"}
+        </button>
+      </div>
+    );
+  if (!permissions)
+    return (
+      <p role="status">
+        {lang === "vi"
+          ? "Đang tải phân quyền…"
+          : "Berechtigungen werden geladen…"}
+      </p>
+    );
+  const roles = Object.keys(permissions) as Role[];
+  const visibleRoles = roles.filter((r) => !selected || selected === r);
+  const keys = [...new Set(Object.values(permissions).flat())].sort();
+  return (
+    <div className="permission-matrix">
+      <label className="field">
+        <span>{lang === "vi" ? "Vai trò cần xem" : "Rolle auswählen"}</span>
+        <select value={selected} onChange={(e) => setSelected(e.target.value)}>
+          <option value="">
+            {lang === "vi"
+              ? "So sánh tất cả vai trò"
+              : "Alle Rollen vergleichen"}
+          </option>
+          {roles.map((r) => (
+            <option key={r} value={r}>
+              {roleName(r)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div
+        className="table-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label={
+          lang === "vi" ? "Bảng quyền theo vai trò" : "Berechtigungen je Rolle"
+        }
+      >
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">
+                {lang === "vi" ? "Quyền hạn" : "Berechtigung"}
+              </th>
+              {visibleRoles.map((r) => (
+                <th scope="col" key={r}>
+                  {roleName(r)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {keys.map((key) => (
+              <tr key={key}>
+                <th scope="row" title={key}>
+                  <span className="table-prose">{permissionNames[key]?.[lang] ?? key}</span>
+                </th>
+                {visibleRoles.map((r) => (
+                  <td key={r}>
+                    {permissions[r].includes(key) ? (
+                      <span className="permission-granted">
+                        {lang === "vi" ? "Có" : "Ja"}
+                      </span>
+                    ) : (
+                      <span>{lang === "vi" ? "Không" : "Nein"}</span>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export function SodModal({
   open,
   onClose,
@@ -1127,111 +1271,10 @@ export function SodModal({
   onClose: () => void;
   data: Workspace;
 }) {
-  const { lang, roleName } = useI18n();
+  const { lang } = useI18n();
   const [tab, setTab] = useState<"rules" | "matrix" | "forbidden">("rules");
 
-  const rules: SodRule[] =
-    data.sodRules && data.sodRules.length > 0
-      ? data.sodRules
-      : [
-          {
-            code: "SOD-01",
-            nameVi: "Không kiêm nhiệm Tính lương & Phê duyệt chi trả",
-            nameDe: "Trennung Entgeltabrechnung und Finanzfreigabe",
-            descriptionVi:
-              "Người tính lương (PAYROLL_OFFICER) không được đồng thời là Người phê duyệt thanh toán (FINANCE_APPROVER) để bảo đảm kiểm soát chi độc lập.",
-            descriptionDe:
-              "Eine Person darf nicht gleichzeitig Abrechnung erstellen und Auszahlung freigeben.",
-            severity: "CRITICAL",
-          },
-          {
-            code: "SOD-02",
-            nameVi: "Tách biệt Quản trị hệ thống và Dữ liệu tiền lương",
-            nameDe: "Trennung Systemadministration und Gehaltsdaten",
-            descriptionVi:
-              "Quản trị viên tài khoản (SYSTEM_ADMIN) không mặc nhiên có quyền xem dữ liệu tiền lương nhạy cảm của nhân sự.",
-            descriptionDe:
-              "Administrationskonten erhalten keinen automatischen Zugriff auf vertrauliche Gehaltsdaten.",
-            severity: "HIGH",
-          },
-          {
-            code: "SOD-03",
-            nameVi: "Không tự phê duyệt chấm công cá nhân",
-            nameDe: "Keine Selbstfreigabe von Arbeitszeiten",
-            descriptionVi:
-              "Quản lý nhà hàng (RESTAURANT_MANAGER) không được tự phê duyệt giờ làm việc hoặc chấm công của chính mình (Nguyên tắc 4 mắt).",
-            descriptionDe:
-              "Leitungskräfte dürfen ihre eigenen Arbeitszeitnachweise nicht eigenständig abzeichnen.",
-            severity: "HIGH",
-          },
-          {
-            code: "SOD-04",
-            nameVi: "Cấm điều chuyển xuyên pháp nhân không hợp đồng",
-            nameDe: "Verbot gesellschaftsübergreifender Versetzung ohne Vertrag",
-            descriptionVi:
-              "Không được điều chuyển nhân viên sang chi nhánh thuộc pháp nhân khác khi chưa hoàn tất phụ lục hoặc hợp đồng lao động mới.",
-            descriptionDe:
-              "Ein Wechsel der Rechtseinheit erfordert zwingend einen gesonderten Vertragsprozess.",
-            severity: "CRITICAL",
-          },
-          {
-            code: "SOD-05",
-            nameVi: "Không trùng lặp người quản lý chi nhánh",
-            nameDe: "Eindeutige Leitungszuordnung ohne Überschneidung",
-            descriptionVi:
-              "Trong cùng một khoảng thời gian hiệu lực, mỗi chi nhánh chỉ có một Quản lý trưởng chịu trách nhiệm điều hành.",
-            descriptionDe:
-              "Zeiträume für Restaurantleitung dürfen sich an einem Standort nicht überschneiden.",
-            severity: "MEDIUM",
-          },
-        ];
-
-  const roleList: { role: Role; perms: string[] }[] = [
-    { role: "SYSTEM_ADMIN", perms: ["iam.read", "iam.write", "audit.read"] },
-    {
-      role: "HR_OFFICER",
-      perms: ["iam.read", "org.read", "workforce.read", "assignment.write"],
-    },
-    {
-      role: "RESTAURANT_MANAGER",
-      perms: ["org.read", "workforce.read", "assignment.write"],
-    },
-    { role: "EMPLOYEE", perms: [] },
-    { role: "PAYROLL_OFFICER", perms: ["workforce.read"] },
-    { role: "FINANCE_APPROVER", perms: [] },
-    { role: "AUDITOR", perms: ["org.read", "workforce.read", "audit.read"] },
-    { role: "DPO", perms: ["iam.read", "audit.read"] },
-  ];
-
-  const allPerms = [
-    { key: "iam.read", labelVi: "Xem tài khoản", labelDe: "Konten lesen" },
-    {
-      key: "iam.write",
-      labelVi: "Quản lý tài khoản",
-      labelDe: "Konten verwalten",
-    },
-    {
-      key: "org.read",
-      labelVi: "Xem cơ cấu tổ chức",
-      labelDe: "Organisation lesen",
-    },
-    {
-      key: "org.write",
-      labelVi: "Quản lý pháp nhân & chi nhánh",
-      labelDe: "Organisation schreiben",
-    },
-    { key: "workforce.read", labelVi: "Xem nhân sự", labelDe: "Personal lesen" },
-    {
-      key: "assignment.write",
-      labelVi: "Phân công & điều chuyển",
-      labelDe: "Einsätze zuordnen",
-    },
-    {
-      key: "audit.read",
-      labelVi: "Nhật ký kiểm toán",
-      labelDe: "Audit-Protokoll",
-    },
-  ];
+  const rules = data.sodRules ?? [];
 
   return (
     <Modal
@@ -1343,70 +1386,7 @@ export function SodModal({
           </div>
         )}
 
-        {tab === "matrix" && (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>{lang === "vi" ? "Vai trò hệ thống" : "Rolle"}</th>
-                  {allPerms.map((p) => (
-                    <th
-                      key={p.key}
-                      title={p.key}
-                      style={{ textAlign: "center", fontSize: 12 }}
-                    >
-                      {lang === "vi" ? p.labelVi : p.labelDe}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {roleList.map((r) => (
-                  <tr key={r.role}>
-                    <td>
-                      <b>{roleName(r.role)}</b>
-                      <small
-                        style={{
-                          display: "block",
-                          color: "var(--muted)",
-                          fontSize: 11,
-                        }}
-                      >
-                        {r.role}
-                      </small>
-                    </td>
-                    {allPerms.map((p) => {
-                      const hasPerm = r.perms.includes(p.key);
-                      return (
-                        <td key={p.key} style={{ textAlign: "center" }}>
-                          {hasPerm ? (
-                            <span
-                              style={{
-                                color: "var(--green)",
-                                display: "inline-flex",
-                              }}
-                            >
-                              <Check size={16} />
-                            </span>
-                          ) : (
-                            <span
-                              style={{
-                                color: "var(--line)",
-                                display: "inline-flex",
-                              }}
-                            >
-                              —
-                            </span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {tab === "matrix" && <PermissionMatrix initialRole={data.user.roles[0]} />}
 
         {tab === "forbidden" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1623,52 +1603,32 @@ export function Accounts({
   );
   return (
     <>
-      <div className="security-banner reveal">
-        <span className="security-small-icon">
-          <ShieldCheck size={22} />
-        </span>
-        <div>
-          <b>{lang === "vi" ? "Phân quyền và bảo mật nghiêm ngặt." : "Zugriffe mit Verantwortung."}</b>
-          <p>
-            {lang === "vi"
-              ? "Vai trò và phạm vi dữ liệu được kiểm tra ở từng API backend. Tài khoản Quản trị không mặc định đọc được dữ liệu lương."
-              : "Rollen und Datenbereiche werden bei jeder Anfrage geprüft. Administration gewährt keinen automatischen Zugriff auf Gehaltsdaten."}
-          </p>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: "10px", alignItems: "center" }}>
-          <span className="pill">F00 · IAM</span>
-          <button
-            className="button button-secondary"
-            onClick={() => setShowSod(true)}
-            style={{ fontSize: 13, padding: "8px 14px", display: "flex", alignItems: "center", gap: 6 }}
-          >
-            <ShieldCheck size={16} />
-            {lang === "vi" ? "Ma trận phân quyền & SoD" : "Rechtematrix & SoD"}
-          </button>
-        </div>
-      </div>
       <div className="list-toolbar reveal">
         <div className="search-field">
           <Search size={17} />
           <input
             placeholder={lang === "vi" ? "Tìm theo tên hoặc email …" : "Name oder E-Mail suchen …"}
-            aria-label="Konten suchen"
+            aria-label={lang === "vi" ? "Tìm tài khoản" : "Konten suchen"}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <span className="muted">{users.length} {lang === "vi" ? "tài khoản" : "Konten"}</span>
+        <button type="button" className="button button-secondary" onClick={() => setShowSod(true)}>
+          <ShieldCheck size={16} aria-hidden="true" />
+          {lang === "vi" ? "Ma trận phân quyền & SoD" : "Rechtematrix & SoD"}
+        </button>
       </div>
       <div className="panel reveal table-scroll">
         <table>
           <thead>
             <tr>
-              <th>{lang === "vi" ? "Tài khoản" : "Konto"}</th>
-              <th>{lang === "vi" ? "Vai trò" : "Rollen"}</th>
-              <th>{lang === "vi" ? "Phạm vi dữ liệu" : "Datenbereich"}</th>
-              <th>Authenticator (MFA)</th>
-              <th>{lang === "vi" ? "Trạng thái" : "Status"}</th>
-              <th />
+              <th scope="col">{lang === "vi" ? "Tài khoản" : "Konto"}</th>
+              <th scope="col">{lang === "vi" ? "Vai trò" : "Rollen"}</th>
+              <th scope="col">{lang === "vi" ? "Phạm vi dữ liệu" : "Datenbereich"}</th>
+              <th scope="col">Authenticator (MFA)</th>
+              <th scope="col">{lang === "vi" ? "Trạng thái" : "Status"}</th>
+              {data.permissions.includes("iam.write") && <th scope="col">{lang === "vi" ? "Thao tác" : "Aktionen"}</th>}
             </tr>
           </thead>
           <tbody>
@@ -1720,24 +1680,18 @@ export function Accounts({
                 <td>
                   <Status active={u.active} />
                 </td>
-                <td>
+                {data.permissions.includes("iam.write") && <td>
                   <div className="row-actions">
+                    <EditButton name={u.name} onClick={() => onEdit(u)} />
                     <button
-                      className="icon-button"
-                      aria-label={`${u.name} bearbeiten`}
-                      onClick={() => onEdit(u)}
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    <button
-                      className="icon-button"
-                      aria-label={`Passwort-Link für ${u.name}`}
+                      className="record-action"
+                      aria-label={lang === "vi" ? `Tạo liên kết đặt lại mật khẩu cho ${u.name}` : `Passwort-Link für ${u.name}`}
                       onClick={() => onReset(u)}
                     >
-                      <KeyRound size={15} />
+                      <KeyRound size={15} />{lang === "vi" ? "Liên kết đặt lại mật khẩu" : "Passwort-Link"}
                     </button>
                   </div>
-                </td>
+                </td>}
               </tr>
             ))}
           </tbody>
@@ -1874,13 +1828,7 @@ export function BranchDetails({
                   <Status active={l.active} />
                 </div>
                 {data.permissions.includes("org.write") && (
-                  <button
-                    className="icon-button"
-                    aria-label={`${l.name} bearbeiten`}
-                    onClick={() => onEdit({ kind: "location", branch, row: l })}
-                  >
-                    <Pencil size={16} />
-                  </button>
+                  <EditButton name={l.name} onClick={() => onEdit({ kind: "location", branch, row: l })} />
                 )}
               </div>
             ))}
@@ -1977,9 +1925,9 @@ export function BranchDetails({
               <table>
                 <thead>
                   <tr>
-                    <th>{lang === "vi" ? "Ngày" : "Datum"}</th>
-                    <th>{lang === "vi" ? "Tên ngày lễ" : "Feiertag"}</th>
-                    <th>{lang === "vi" ? "Phạm vi" : "Geltungsbereich"}</th>
+                    <th scope="col">{lang === "vi" ? "Ngày" : "Datum"}</th>
+                    <th scope="col">{lang === "vi" ? "Tên ngày lễ" : "Feiertag"}</th>
+                    <th scope="col">{lang === "vi" ? "Phạm vi" : "Geltungsbereich"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1995,12 +1943,12 @@ export function BranchDetails({
                         </td>
                         <td>
                           <div>
-                            <b>{lang === "vi" ? h.nameVi : h.name}</b>
+                            <b className="table-prose">{lang === "vi" ? h.nameVi : h.name}</b>
                             <small
+                              className="table-prose"
                               style={{
                                 display: "block",
                                 color: "var(--muted)",
-                                fontSize: 12,
                               }}
                             >
                               {lang === "vi" ? h.name : h.nameVi}
@@ -2169,7 +2117,7 @@ export function Security({
           </div>
           <button
             className="icon-button"
-            aria-label="Sitzungen aktualisieren"
+            aria-label={lang === "vi" ? "Làm mới danh sách phiên đăng nhập" : "Sitzungen aktualisieren"}
             onClick={load}
           >
             <RefreshCw size={17} />

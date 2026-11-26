@@ -45,8 +45,8 @@ public class AttendanceChangeRequestEntity {
   @Column(name = "decision_notes", length = 500)
   public String decisionNotes;
 
-  @Column(name = "decided_by_user_id")
-  public Long decidedByUserId;
+  @Column(name = "decided_by_user_id", length = 255)
+  public String decidedByUserId;
 
   @Column(name = "decided_at_utc")
   public Instant decidedAtUtc;

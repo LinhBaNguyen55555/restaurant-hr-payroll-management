@@ -4,6 +4,7 @@ import com.restaurant.hrpayroll.entity.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -18,6 +19,12 @@ public class LeaveService {
 
   @PersistenceContext
   private EntityManager em;
+
+  private final Access access;
+
+  public LeaveService(Access access) {
+    this.access = access;
+  }
 
   private static final ZoneId BERLIN_ZONE = ZoneId.of("Europe/Berlin");
 
@@ -61,7 +68,7 @@ public class LeaveService {
     BigDecimal requestedDays,
     String reason,
     String status,
-    Long reviewedByUserId,
+    String reviewedByUserId,
     String reviewedByName,
     String reviewNotes,
     Instant reviewedAtUtc,
@@ -79,8 +86,10 @@ public class LeaveService {
     boolean hasMedicalCertificate,
     LocalDate certificateDate,
     boolean isContinuedPayEligible,
+    boolean isChildSickLeave,
     BigDecimal grossPayImpactPercent,
     String confidentialDocumentRef,
+    String verificationStatus,
     String notes,
     Instant createdAtUtc
   ) {}
@@ -90,7 +99,7 @@ public class LeaveService {
     Long employeeId,
     String employeeName,
     String employeeCode,
-    Long branchId,
+    String branchId,
     LocalDate relatedWorkDate,
     LocalDate restDate,
     LocalDate deadlineDate,
@@ -135,25 +144,6 @@ public class LeaveService {
       query.setParameter("empId", employeeId);
     }
     List<LeaveBalanceEntity> list = query.getResultList();
-
-    // If empty for specific employee, create default statutory balance
-    if (list.isEmpty() && employeeId != null && employeeId > 0) {
-      EmployeeEntity emp = em.find(EmployeeEntity.class, employeeId);
-      if (emp != null) {
-        LeaveBalanceEntity nb = new LeaveBalanceEntity();
-        nb.employeeId = employeeId;
-        nb.leaveTypeId = 1; // ANNUAL
-        nb.leaveYear = targetYear;
-        nb.entitledDays = new BigDecimal("25.00"); // 25 days contract (BUrlG requires min 20 for 5-day week)
-        nb.usedDays = BigDecimal.ZERO;
-        nb.carriedDays = BigDecimal.ZERO;
-        nb.remainingDays = new BigDecimal("25.00");
-        nb.expiryDate = LocalDate.of(targetYear, 3, 31); // 31. März standard
-        nb.approvalStatus = "APPROVED";
-        em.persist(nb);
-        list = List.of(nb);
-      }
-    }
 
     Map<Long, EmployeeEntity> empCache = new HashMap<>();
     Map<Integer, LeaveTypeEntity> typeCache = new HashMap<>();
@@ -200,42 +190,33 @@ public class LeaveService {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy loại nghỉ phép tương ứng!");
     }
 
-    // Calculate working days (excluding Saturdays & Sundays for standard workweek)
+    if (start.getYear() != end.getYear() || ChronoUnit.DAYS.between(start, end) > 366)
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Hãy gửi đơn riêng cho từng năm.");
+    if (List.of("SICK", "CHILD_SICK", "COMP_REST").contains(type.leaveCode))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Hãy sử dụng quy trình nghỉ ốm hoặc nghỉ bù riêng.");
+    var employee = em.find(EmployeeEntity.class, employeeId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+    if (employee == null || start.isBefore(employee.hireDate) || (employee.terminationDate != null && end.isAfter(employee.terminationDate)))
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Ngày nghỉ nằm ngoài thời gian làm việc.");
+    Long overlap = em.createQuery("""
+      select count(r) from LeaveRequestEntity r where r.employeeId=:id and r.status in ('PENDING','APPROVED')
+      and r.startDate<=:end and r.endDate>=:start
+      """, Long.class).setParameter("id", employeeId).setParameter("start", start).setParameter("end", end).getSingleResult();
+    Long sickOverlap = em.createQuery("""
+      select count(a) from SicknessAbsenceEntity a where a.employeeId=:id and a.verificationStatus<>'REJECTED'
+      and a.startDate<=:end and a.endDate>=:start
+      """, Long.class).setParameter("id", employeeId).setParameter("start", start).setParameter("end", end).getSingleResult();
+    if (overlap > 0 || sickOverlap > 0) throw new ResponseStatusException(HttpStatus.CONFLICT, "Đã có đơn nghỉ hoặc hồ sơ nghỉ ốm trùng khoảng ngày.");
+
     long totalDays = 0;
-    LocalDate curr = start;
-    while (!curr.isAfter(end)) {
-      DayOfWeek dow = curr.getDayOfWeek();
-      if (dow != DayOfWeek.SATURDAY && dow != DayOfWeek.SUNDAY) {
-        totalDays++;
-      }
-      curr = curr.plusDays(1);
+    for (LocalDate day = start; !day.isAfter(end); day = day.plusDays(1)) {
+      boolean scheduled = hasShift(employeeId, day, false);
+      boolean businessDay = day.getDayOfWeek().getValue() <= 5 && !isHoliday(employeeId, null, day);
+      if (scheduled || businessDay) totalDays++;
     }
-    if (totalDays == 0) totalDays = 1;
-
+    if (totalDays == 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Khoảng ngày không có ngày làm việc.");
     BigDecimal reqDays = BigDecimal.valueOf(totalDays);
-
-    // If Annual Leave, check remaining balance
-    if (Boolean.TRUE.equals(type.countsAgainstAnnualLeave)) {
-      int year = start.getYear();
-      List<LeaveBalanceEntity> bals = em.createQuery(
-        "SELECT b FROM LeaveBalanceEntity b WHERE b.employeeId = :e AND b.leaveTypeId = :t AND b.leaveYear = :y",
-        LeaveBalanceEntity.class
-      )
-      .setParameter("e", employeeId)
-      .setParameter("t", leaveTypeId)
-      .setParameter("y", year)
-      .getResultList();
-
-      if (!bals.isEmpty()) {
-        LeaveBalanceEntity bal = bals.get(0);
-        if (bal.remainingDays.compareTo(reqDays) < 0) {
-          throw new ResponseStatusException(
-            HttpStatus.BAD_REQUEST,
-            "Số ngày nghỉ yêu cầu (" + reqDays + " ngày) vượt quá số dư phép năm còn lại (" + bal.remainingDays + " ngày)!"
-          );
-        }
-      }
-    }
+    if (Boolean.TRUE.equals(type.countsAgainstAnnualLeave))
+      leaveBalance(employeeId, leaveTypeId, start.getYear(), reqDays, start);
 
     LeaveRequestEntity req = new LeaveRequestEntity();
     req.employeeId = employeeId;
@@ -273,10 +254,15 @@ public class LeaveService {
     List<LeaveRequestEntity> list = query.getResultList();
     Map<Long, EmployeeEntity> empCache = new HashMap<>();
     Map<Integer, LeaveTypeEntity> typeCache = new HashMap<>();
+    Map<String, String> reviewerCache = new HashMap<>();
 
     return list.stream().map(r -> {
       EmployeeEntity emp = empCache.computeIfAbsent(r.employeeId, id -> em.find(EmployeeEntity.class, id));
       LeaveTypeEntity lt = typeCache.computeIfAbsent(r.leaveTypeId, id -> em.find(LeaveTypeEntity.class, id));
+      String reviewerName = r.reviewedByUserId == null ? null : reviewerCache.computeIfAbsent(r.reviewedByUserId, uid -> {
+        var u = em.find(Domain.UserAccount.class, uid);
+        return u != null ? u.name : "Quản lý / HR";
+      });
 
       return new LeaveRequestDto(
         r.leaveRequestId,
@@ -292,7 +278,7 @@ public class LeaveService {
         r.reason,
         r.status,
         r.reviewedByUserId,
-        r.reviewedByUserId != null ? "Quản lý / HR" : null,
+        reviewerName,
         r.reviewNotes,
         r.reviewedAtUtc,
         r.createdAtUtc
@@ -305,10 +291,10 @@ public class LeaveService {
     Long requestId,
     boolean approve,
     String notes,
-    Long currentUserId,
+    String currentUserId,
     Long currentEmployeeId
   ) {
-    LeaveRequestEntity req = em.find(LeaveRequestEntity.class, requestId);
+    LeaveRequestEntity req = em.find(LeaveRequestEntity.class, requestId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
     if (req == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn xin nghỉ phép ID #" + requestId);
     }
@@ -324,7 +310,7 @@ public class LeaveService {
       );
     }
 
-    req.reviewedByUserId = currentUserId != null ? currentUserId : 1L;
+    req.reviewedByUserId = currentUserId;
     req.reviewNotes = notes;
     req.reviewedAtUtc = Instant.now();
 
@@ -334,37 +320,13 @@ public class LeaveService {
       // If counts against annual leave, deduct balance
       LeaveTypeEntity type = em.find(LeaveTypeEntity.class, req.leaveTypeId);
       if (type != null && Boolean.TRUE.equals(type.countsAgainstAnnualLeave)) {
-        int year = req.startDate.getYear();
-        List<LeaveBalanceEntity> bals = em.createQuery(
-          "SELECT b FROM LeaveBalanceEntity b WHERE b.employeeId = :e AND b.leaveTypeId = :t AND b.leaveYear = :y",
-          LeaveBalanceEntity.class
-        )
-        .setParameter("e", req.employeeId)
-        .setParameter("t", req.leaveTypeId)
-        .setParameter("y", year)
-        .getResultList();
-
-        if (!bals.isEmpty()) {
-          LeaveBalanceEntity bal = bals.get(0);
-          bal.usedDays = bal.usedDays.add(req.requestedDays);
-          bal.remainingDays = bal.entitledDays.add(bal.carriedDays).subtract(bal.usedDays);
-          bal.updatedAtUtc = Instant.now();
-        }
+        var balance = leaveBalance(req.employeeId, req.leaveTypeId, req.startDate.getYear(), req.requestedDays, req.startDate);
+        balance.usedDays = balance.usedDays.add(req.requestedDays);
+        balance.remainingDays = balance.remainingDays.subtract(req.requestedDays);
+        balance.updatedAtUtc = Instant.now();
       }
 
-      // Sync schedule: Cancel any conflicting shifts during this period
-      List<ShiftScheduleEntity> shifts = em.createQuery(
-        "SELECT s FROM ShiftScheduleEntity s WHERE s.employeeId = :emp AND s.workDate BETWEEN :sDate AND :eDate AND s.status != 'CANCELLED'",
-        ShiftScheduleEntity.class
-      )
-      .setParameter("emp", req.employeeId)
-      .setParameter("sDate", req.startDate)
-      .setParameter("eDate", req.endDate)
-      .getResultList();
-
-      for (ShiftScheduleEntity shift : shifts) {
-        shift.status = "LEAVE_APPROVED";
-      }
+      markAbsence(req.employeeId, req.startDate, req.endDate, "LEAVE_APPROVED");
 
     } else {
       req.status = "REJECTED";
@@ -379,9 +341,11 @@ public class LeaveService {
     LocalDate start,
     LocalDate end,
     boolean hasCert,
+    boolean childSick,
     LocalDate certDate,
+    String documentRef,
     String notes,
-    Long recorderUserId
+    String recorderUserId
   ) {
     if (employeeId == null || start == null || end == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thiếu thông tin bắt buộc của hồ sơ nghỉ ốm!");
@@ -393,50 +357,56 @@ public class LeaveService {
     long days = ChronoUnit.DAYS.between(start, end) + 1;
 
     // Check EntgFG: Continued pay up to 42 days (6 weeks)
-    boolean eligible = true;
+    var employee = em.find(EmployeeEntity.class, employeeId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+    if (employee == null || start.isBefore(employee.hireDate) || (employee.terminationDate != null && end.isAfter(employee.terminationDate)))
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Nghỉ ốm nằm ngoài thời gian làm việc.");
+    if (certDate != null && !hasCert) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cần xác nhận chứng từ trước khi nhập ngày.");
+    Long sickOverlap = em.createQuery("""
+      select count(a) from SicknessAbsenceEntity a where a.employeeId=:id and a.verificationStatus<>'REJECTED'
+      and a.startDate<=:end and a.endDate>=:start
+      """, Long.class).setParameter("id", employeeId).setParameter("start", start).setParameter("end", end).getSingleResult();
+    Long leaveOverlap = em.createQuery("""
+      select count(r) from LeaveRequestEntity r where r.employeeId=:id and r.status in ('PENDING','APPROVED')
+      and r.startDate<=:end and r.endDate>=:start
+      """, Long.class).setParameter("id", employeeId).setParameter("start", start).setParameter("end", end).getSingleResult();
+    if (sickOverlap > 0 || leaveOverlap > 0) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Đã có hồ sơ nghỉ ốm hoặc đơn nghỉ phép trùng khoảng ngày.");
+    }
+    boolean eligible = !childSick && !start.isBefore(employee.hireDate.plusWeeks(4));
     BigDecimal payPercent = new BigDecimal("100.00");
-    if (days > 42) {
-      // Over 6 weeks: Krankengeld starts, company continued pay stops
+    if (eligible && days > 42) {
+      payPercent = BigDecimal.valueOf(4200).divide(BigDecimal.valueOf(days), 2, RoundingMode.HALF_UP);
+    } else if (!eligible) {
+      // Waiting period from the start of employment
       payPercent = BigDecimal.ZERO;
     }
 
     SicknessAbsenceEntity s = new SicknessAbsenceEntity();
     s.employeeId = employeeId;
-    s.leaveTypeId = 2; // SICK
+    s.leaveTypeId = em.createQuery("select t.leaveTypeId from LeaveTypeEntity t where t.leaveCode=:code", Integer.class)
+      .setParameter("code", childSick ? "CHILD_SICK" : "SICK").getResultList().stream().findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Thiếu loại nghỉ ốm."));
     s.startDate = start;
     s.endDate = end;
     s.hasMedicalCertificate = hasCert;
     s.certificateDate = certDate;
     s.isContinuedPayEligible = eligible;
     s.grossPayImpactPercent = payPercent;
-    s.confidentialDocumentRef = "eAU-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    s.confidentialDocumentRef = documentRef == null || documentRef.isBlank() ? null : documentRef.trim();
     s.notes = notes != null ? notes : "Ghi nhận nghỉ ốm theo quy định EntgFG";
     s.recordedByUserId = recorderUserId;
-    s.verificationStatus = "VERIFIED";
+    s.verificationStatus = hasCert && eligible && days <= 42 ? "VERIFIED" : "PENDING_REVIEW";
     s.createdAtUtc = Instant.now();
 
     em.persist(s);
 
-    // Cancel conflicting shifts during sick leave
-    List<ShiftScheduleEntity> shifts = em.createQuery(
-      "SELECT sh FROM ShiftScheduleEntity sh WHERE sh.employeeId = :emp AND sh.workDate BETWEEN :sDate AND :eDate AND sh.status != 'CANCELLED'",
-      ShiftScheduleEntity.class
-    )
-    .setParameter("emp", employeeId)
-    .setParameter("sDate", start)
-    .setParameter("eDate", end)
-    .getResultList();
-
-    for (ShiftScheduleEntity shift : shifts) {
-      shift.status = "SICK_LEAVE";
-    }
+    markAbsence(employeeId, start, end, "SICK_LEAVE");
 
     return s;
   }
 
   // 7. Lấy danh sách hồ sơ nghỉ ốm
   public List<SicknessAbsenceDto> getSicknessAbsences(Long employeeId) {
-    String q = "SELECT a FROM SicknessAbsenceEntity a WHERE a.leaveTypeId = 2";
+    String q = "SELECT a FROM SicknessAbsenceEntity a, LeaveTypeEntity t WHERE t.leaveTypeId=a.leaveTypeId AND t.leaveCode IN ('SICK','CHILD_SICK')";
     if (employeeId != null && employeeId > 0) {
       q += " AND a.employeeId = :empId";
     }
@@ -465,8 +435,10 @@ public class LeaveService {
         Boolean.TRUE.equals(a.hasMedicalCertificate),
         a.certificateDate,
         Boolean.TRUE.equals(a.isContinuedPayEligible),
+        "CHILD_SICK".equals(em.find(LeaveTypeEntity.class, a.leaveTypeId).leaveCode),
         a.grossPayImpactPercent,
         a.confidentialDocumentRef,
+        a.verificationStatus,
         a.notes,
         a.createdAtUtc
       );
@@ -474,12 +446,9 @@ public class LeaveService {
   }
 
   // 8. Theo dõi nghĩa vụ nghỉ bù ArbZG §11(3)
-  public List<CompensatoryRestDto> getCompensatoryRestObligations(Long branchId, Long employeeId) {
-    // Generate obligations from Sunday/Holiday timesheets if missing
-    syncCompensatoryRestObligations(branchId);
-
+  public List<CompensatoryRestDto> getCompensatoryRestObligations(String branchId, Long employeeId) {
     String q = "SELECT r FROM CompensatoryRestDayEntity r WHERE 1=1";
-    if (branchId != null && branchId > 0) {
+    if (branchId != null) {
       q += " AND r.branchId = :bId";
     }
     if (employeeId != null && employeeId > 0) {
@@ -488,7 +457,7 @@ public class LeaveService {
     q += " ORDER BY r.deadlineDate ASC, r.relatedWorkDate DESC";
 
     var query = em.createQuery(q, CompensatoryRestDayEntity.class);
-    if (branchId != null && branchId > 0) {
+    if (branchId != null) {
       query.setParameter("bId", branchId);
     }
     if (employeeId != null && employeeId > 0) {
@@ -524,66 +493,161 @@ public class LeaveService {
     }).toList();
   }
 
-  // Tự động quét các ca Chủ nhật / Ngày lễ để ghi nhận nghĩa vụ nghỉ bù ArbZG §11
-  private void syncCompensatoryRestObligations(Long branchId) {
-    try {
-      List<AttendanceTimesheetEntity> sunShifts = em.createQuery(
-        "SELECT t FROM AttendanceTimesheetEntity t WHERE t.branchId = :b AND t.status IN ('APPROVED', 'PENDING_APPROVAL', 'OPEN')",
-        AttendanceTimesheetEntity.class
-      )
-      .setParameter("b", branchId != null ? branchId : 1L)
-      .getResultList();
+  public void recordRestObligations(AttendanceTimesheetEntity timesheet) {
+    if (timesheet.actualStartUtc == null || timesheet.actualEndUtc == null) return;
+    LocalDate day = timesheet.actualStartUtc.atZone(BERLIN_ZONE).toLocalDate();
+    LocalDate last = timesheet.actualEndUtc.minusNanos(1).atZone(BERLIN_ZONE).toLocalDate();
+    for (; !day.isAfter(last); day = day.plusDays(1)) {
+      boolean sunday = day.getDayOfWeek() == DayOfWeek.SUNDAY;
+      boolean holiday = !sunday && isHoliday(timesheet.employeeId, timesheet.branchId, day);
+      if (!sunday && !holiday) continue;
+      String kind = holiday ? "HOLIDAY_COMPENSATION" : "SUNDAY_COMPENSATION";
+      long existing = em.createQuery("""
+        select count(r) from CompensatoryRestDayEntity r where r.employeeId=:employee
+        and r.relatedWorkDate=:day and r.restKind=:kind
+        """, Long.class).setParameter("employee", timesheet.employeeId).setParameter("day", day)
+        .setParameter("kind", kind).getSingleResult();
+      if (existing != 0) continue;
+      var row = new CompensatoryRestDayEntity();
+      row.employeeId = timesheet.employeeId;
+      row.branchId = timesheet.branchId;
+      row.relatedWorkDate = day;
+      row.deadlineDate = day.plusWeeks(holiday ? 8 : 2);
+      row.restKind = kind;
+      row.policyReference = "ArbZG §11 Abs. 3";
+      row.status = "PENDING";
+      em.persist(row);
+    }
+  }
 
-      for (AttendanceTimesheetEntity ts : sunShifts) {
-        DayOfWeek dow = ts.workDate.getDayOfWeek();
-        boolean isSun = (dow == DayOfWeek.SUNDAY);
+  private boolean isHoliday(Long employee, String branchId, LocalDate day) {
+    var assignment = access.assignments(employee, day).stream()
+      .filter(a -> branchId == null || branchId.equals(a.branchId)).findFirst().orElse(null);
+    String state = assignment == null ? null : assignment.stateCode;
+    if (state == null && branchId != null) {
+      var branch = em.find(Domain.Branch.class, branchId);
+      if (branch != null) state = branch.stateCode;
+    }
+    if (state == null) return false;
+    return em.createQuery("""
+      select count(h) from PublicHolidayEntity h where h.stateCode=:state and h.holidayDate=:day
+      and h.isStatutory=true and h.verificationStatus='VERIFIED' and h.municipalityCode is null
+      """, Long.class).setParameter("state", state).setParameter("day", day).getSingleResult() > 0;
+  }
 
-        // Check if holiday in BW
-        List<PublicHolidayEntity> hols = em.createQuery(
-          "SELECT h FROM PublicHolidayEntity h WHERE h.stateCode = 'BW' AND h.holidayDate = :d",
-          PublicHolidayEntity.class
-        )
-        .setParameter("d", ts.workDate)
-        .getResultList();
-        boolean isHol = !hols.isEmpty();
+  public LeaveBalanceEntity approveLeaveBalance(Long employeeId, int year, BigDecimal entitled, BigDecimal carried) {
+    if (employeeId == null || year < 2000 || year > 2200 || entitled == null || carried == null
+      || entitled.signum() < 0 || carried.signum() < 0 || entitled.add(carried).compareTo(BigDecimal.valueOf(366)) > 0
+      || entitled.stripTrailingZeros().scale() > 2 || carried.stripTrailingZeros().scale() > 2)
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Số dư phép không hợp lệ.");
+    var employee = em.find(EmployeeEntity.class, employeeId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+    if (employee == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy nhân viên.");
+    Integer annual = em.createQuery("select t.leaveTypeId from LeaveTypeEntity t where t.leaveCode='ANNUAL'", Integer.class)
+      .getResultList().stream().findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Thiếu loại phép năm."));
+    var balance = em.createQuery("""
+      select b from LeaveBalanceEntity b where b.employeeId=:employee and b.leaveTypeId=:type and b.leaveYear=:year
+      """, LeaveBalanceEntity.class).setParameter("employee", employeeId).setParameter("type", annual)
+      .setParameter("year", year).setLockMode(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+      .getResultList().stream().findFirst().orElse(null);
+    if (balance == null) {
+      balance = new LeaveBalanceEntity();
+      balance.employeeId = employeeId;
+      balance.leaveTypeId = annual;
+      balance.leaveYear = year;
+      em.persist(balance);
+    }
+    if (entitled.add(carried).compareTo(balance.usedDays) < 0)
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Số dư cấp thấp hơn số ngày đã dùng.");
+    balance.entitledDays = entitled;
+    balance.carriedDays = carried;
+    balance.expiryDate = carried.signum() > 0 ? LocalDate.of(year, 3, 31) : null;
+    balance.remainingDays = entitled.add(carried).subtract(balance.usedDays);
+    balance.approvalStatus = "APPROVED";
+    balance.updatedAtUtc = Instant.now();
+    return balance;
+  }
 
-        if (isSun || isHol) {
-          String kind = isHol ? "HOLIDAY_COMPENSATION" : "SUNDAY_COMPENSATION";
-          LocalDate deadline = isHol ? ts.workDate.plusWeeks(8) : ts.workDate.plusWeeks(2);
+  private LeaveBalanceEntity leaveBalance(Long employee, Integer type, int year, BigDecimal days, LocalDate requestStart) {
+    var balances = em.createQuery("""
+      select b from LeaveBalanceEntity b where b.employeeId=:employee and b.leaveTypeId=:type
+      and b.leaveYear=:year and b.approvalStatus='APPROVED'
+      """, LeaveBalanceEntity.class).setParameter("employee", employee).setParameter("type", type)
+      .setParameter("year", year).setLockMode(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+      .setMaxResults(2).getResultList();
+    if (balances.size() != 1) throw new ResponseStatusException(HttpStatus.CONFLICT, "Chưa có số dư phép năm đã duyệt.");
+    var balance = balances.getFirst();
+    BigDecimal effectiveRemaining = balance.remainingDays;
+    if (balance.carriedDays.signum() > 0 && balance.expiryDate != null && requestStart.isAfter(balance.expiryDate)) {
+      BigDecimal usedBeforeExpiry = em.createQuery("""
+        select coalesce(sum(r.requestedDays), 0) from LeaveRequestEntity r
+        where r.employeeId=:employee and r.leaveTypeId=:type and r.status='APPROVED'
+        and r.startDate>=:yrStart and r.startDate<=:exp
+        """, BigDecimal.class)
+        .setParameter("employee", employee)
+        .setParameter("type", type)
+        .setParameter("yrStart", LocalDate.of(year, 1, 1))
+        .setParameter("exp", balance.expiryDate)
+        .getSingleResult();
+      BigDecimal usableCarried = usedBeforeExpiry.min(balance.carriedDays);
+      effectiveRemaining = balance.entitledDays.add(usableCarried).subtract(balance.usedDays).max(BigDecimal.ZERO);
+    }
+    if (effectiveRemaining.compareTo(days) < 0) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Số ngày yêu cầu vượt số dư phép hiệu lực.");
+    }
+    return balance;
+  }
 
-          List<CompensatoryRestDayEntity> existing = em.createQuery(
-            "SELECT c FROM CompensatoryRestDayEntity c WHERE c.employeeId = :e AND c.relatedWorkDate = :d",
-            CompensatoryRestDayEntity.class
-          )
-          .setParameter("e", ts.employeeId)
-          .setParameter("d", ts.workDate)
-          .getResultList();
+  private boolean hasShift(Long employee, LocalDate day, boolean actual) {
+    Instant start = day.atStartOfDay(BERLIN_ZONE).toInstant();
+    Instant end = day.plusDays(1).atStartOfDay(BERLIN_ZONE).toInstant();
+    if (actual && em.createQuery("""
+      select count(t) from AttendanceTimesheetEntity t where t.employeeId=:id
+      and t.actualStartUtc<:end and (t.actualEndUtc is null or t.actualEndUtc>:start)
+      """, Long.class).setParameter("id", employee).setParameter("start", start).setParameter("end", end).getSingleResult() > 0) return true;
+    return em.createQuery("""
+      select count(s) from ShiftScheduleEntity s where s.employeeId=:id and s.status in ('DRAFT','PUBLISHED')
+      and s.plannedStartUtc<:end and s.plannedEndUtc>:start
+      """, Long.class).setParameter("id", employee).setParameter("start", start).setParameter("end", end).getSingleResult() > 0;
+  }
 
-          if (existing.isEmpty()) {
-            CompensatoryRestDayEntity c = new CompensatoryRestDayEntity();
-            c.employeeId = ts.employeeId;
-            c.branchId = ts.branchId;
-            c.relatedWorkDate = ts.workDate;
-            c.deadlineDate = deadline;
-            c.restKind = kind;
-            c.status = "PENDING";
-            c.policyReference = isHol ? "ArbZG §11(3) - 8 tuần" : "ArbZG §11(3) - 2 tuần";
-            c.notes = (isHol ? "Làm việc ngày lễ (" : "Làm việc Chủ nhật (") + ts.workDate + "), cần bố trí ngày nghỉ bù.";
-            c.createdAtUtc = Instant.now();
-            em.persist(c);
-          }
-        }
-      }
-    } catch (Exception ignored) {}
+  private void markAbsence(Long employee, LocalDate from, LocalDate to, String status) {
+    em.createQuery("""
+      update ShiftScheduleEntity s set s.status=:status where s.employeeId=:id and s.status in ('DRAFT','PUBLISHED')
+      and s.plannedStartUtc<:end and s.plannedEndUtc>:start
+      """).setParameter("id", employee).setParameter("status", status)
+      .setParameter("start", from.atStartOfDay(BERLIN_ZONE).toInstant())
+      .setParameter("end", to.plusDays(1).atStartOfDay(BERLIN_ZONE).toInstant()).executeUpdate();
   }
 
   // 9. Xác nhận / xếp lịch ngày nghỉ bù thực tế (F06.04)
   public CompensatoryRestDayEntity fulfillCompensatoryRest(Long restId, LocalDate restDate, String notes) {
-    CompensatoryRestDayEntity r = em.find(CompensatoryRestDayEntity.class, restId);
+    CompensatoryRestDayEntity r = em.find(CompensatoryRestDayEntity.class, restId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
     if (r == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy nghĩa vụ nghỉ bù ID #" + restId);
     }
-    r.restDate = restDate != null ? restDate : LocalDate.now(BERLIN_ZONE);
+    LocalDate deadline = r.deadlineDate != null ? r.deadlineDate : r.relatedWorkDate.plusWeeks("HOLIDAY_COMPENSATION".equals(r.restKind) ? 8 : 2);
+    if ("COMPLETED".equals(r.status) || restDate == null || !restDate.isAfter(r.relatedWorkDate)
+      || restDate.isAfter(deadline) || hasShift(r.employeeId, restDate, true)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Ngày nghỉ bù phải sau ngày làm việc, trong hạn luật định và không có ca hoặc bảng công.");
+    }
+    if (isHoliday(r.employeeId, r.branchId, restDate)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Không thể chọn ngày lễ làm ngày nghỉ bù.");
+    }
+    Long onLeave = em.createQuery("""
+      select count(lr) from LeaveRequestEntity lr where lr.employeeId=:e and lr.status in ('PENDING','APPROVED')
+      and lr.startDate<=:d and lr.endDate>=:d
+      """, Long.class).setParameter("e", r.employeeId).setParameter("d", restDate).getSingleResult();
+    Long onSick = em.createQuery("""
+      select count(sa) from SicknessAbsenceEntity sa where sa.employeeId=:e and sa.verificationStatus<>'REJECTED'
+      and sa.startDate<=:d and sa.endDate>=:d
+      """, Long.class).setParameter("e", r.employeeId).setParameter("d", restDate).getSingleResult();
+    Long usedForOtherRest = em.createQuery("""
+      select count(c) from CompensatoryRestDayEntity c where c.employeeId=:e and c.restId<>:id and c.restDate=:d
+      """, Long.class).setParameter("e", r.employeeId).setParameter("id", restId).setParameter("d", restDate).getSingleResult();
+    if (onLeave + onSick + usedForOtherRest > 0) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Ngày nghỉ bù bị trùng với lịch nghỉ hoặc ngày nghỉ bù khác.");
+    }
+    r.restDate = restDate;
     r.status = "COMPLETED";
     if (notes != null && !notes.isBlank()) {
       r.notes = notes;

@@ -41,6 +41,7 @@ const branch = {
   accent: "mint",
 };
 const data = {
+  user: { roles: ["SYSTEM_ADMIN"], legalEntityIds: [] },
   entities: [row],
   branches: [branch],
   locations: [],
@@ -92,7 +93,7 @@ describe("F01 forms", () => {
       screen.getByLabelText("Vollständige Adresse"),
       "Münsterplatz 1, Ulm",
     );
-    await u.click(screen.getByRole("button", { name: /Änderungen speichern/ }));
+    await u.click(screen.getByRole("button", { name: "Niederlassung hinzufügen" }));
     await waitFor(() => expect(saved).toHaveBeenCalled());
     expect(api).toHaveBeenCalledWith(
       "/org/branches",
@@ -149,15 +150,61 @@ describe("F01 forms", () => {
     );
     expect(saved).not.toHaveBeenCalled();
   });
+  it("keeps unsaved input when returning from the discard prompt", async () => {
+    const close = vi.fn();
+    const u = userEvent.setup();
+    render(<EditorModal editor={{ kind: "branch", row: branch }} data={data}
+      onClose={close} onSaved={vi.fn()} />);
+    const city = screen.getByLabelText("Stadt") as HTMLInputElement;
+    await u.clear(city);
+    await u.type(city, "Ulm");
+    await u.click(screen.getByRole("button", { name: "Abbrechen" }));
+    expect(close).not.toHaveBeenCalled();
+    await u.click(screen.getByRole("button", { name: "Weiter bearbeiten" }));
+    expect(city.value).toBe("Ulm");
+    await u.click(screen.getByRole("button", { name: "Abbrechen" }));
+    await u.click(screen.getByRole("button", { name: "Änderungen verwerfen" }));
+    expect(close).toHaveBeenCalledOnce();
+    expect(api).not.toHaveBeenCalled();
+  });
+  it("deactivates a branch only after an explicit save and retains its identity", async () => {
+    vi.mocked(api).mockResolvedValue(branch);
+    const saved = vi.fn();
+    render(<EditorModal editor={{ kind: "branch", row: branch }} data={data}
+      onClose={vi.fn()} onSaved={saved} />);
+    await userEvent.selectOptions(screen.getByLabelText("Status"), "inactive");
+    expect(api).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Speichern und deaktivieren" }));
+    expect(api).toHaveBeenCalledWith("/org/branches/branch-1", "PUT",
+      expect.objectContaining({ active: false, legalEntityId: "entity-1", version: 0 }));
+    expect(saved).toHaveBeenCalledOnce();
+  });
 });
 describe("F00 authentication", () => {
+  it("selects the MySQL email, focuses its password and only clears it when switching accounts", async () => {
+    const u = userEvent.setup();
+    render(<Login onLogin={vi.fn()} />);
+    const anna = screen.getByRole("button", { name: "Anna Müller" });
+    const email = screen.getByLabelText<HTMLInputElement>("E-Mail oder Benutzername");
+    const password = screen.getByLabelText<HTMLInputElement>("Passwort");
+    await u.click(anna);
+    expect(email.value).toBe("anna.mueller@restaurant.example");
+    expect(document.activeElement).toBe(password);
+    await u.type(password, "example-for-test");
+    await u.click(anna);
+    expect(password.value).toBe("example-for-test");
+    await u.click(screen.getByRole("button", { name: "admin" }));
+    expect(email.value).toBe("admin@restaurant.example");
+    expect(password.value).toBe("");
+  });
+
   it("submits credentials and passes the pending MFA state to the application", async () => {
     vi.mocked(api).mockResolvedValue(user);
     const onLogin = vi.fn();
     render(<Login onLogin={onLogin} />);
     const u = userEvent.setup();
     await u.type(
-      screen.getByLabelText("E-Mail-Adresse"),
+      screen.getByLabelText("E-Mail oder Benutzername"),
       "admin@atelier.local",
     );
     await u.type(screen.getByLabelText("Passwort"), "Atelier!2026Demo");
@@ -173,7 +220,7 @@ describe("F00 authentication", () => {
     const done = vi.fn();
     render(<Login onLogin={done} />);
     const u = userEvent.setup();
-    await u.type(screen.getByLabelText("E-Mail-Adresse"), "a@b.de");
+    await u.type(screen.getByLabelText("E-Mail oder Benutzername"), "a@b.de");
     await u.type(screen.getByLabelText("Passwort"), "invalid");
     await u.click(screen.getByRole("button", { name: /Zum Arbeitsbereich/ }));
     await waitFor(() =>

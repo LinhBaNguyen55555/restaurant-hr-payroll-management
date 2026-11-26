@@ -34,9 +34,9 @@ public class LaborLawChecker {
   /**
    * Run full German labor law check on all shifts in a branch within a given period.
    */
-  public CheckSummary validateSchedule(Long branchId, Instant startUtc, Instant endUtc) {
+  public CheckSummary validateSchedule(String branchId, Instant startUtc, Instant endUtc) {
     List<ShiftScheduleEntity> shifts = em.createQuery(
-      "SELECT s FROM ShiftScheduleEntity s WHERE s.branchId = :b AND s.plannedStartUtc >= :start AND s.plannedEndUtc <= :end AND s.status != 'CANCELLED' ORDER BY s.plannedStartUtc",
+      "SELECT s FROM ShiftScheduleEntity s WHERE s.branchId = :b AND s.plannedStartUtc >= :start AND s.plannedEndUtc <= :end AND s.status in ('DRAFT','PUBLISHED') ORDER BY s.plannedStartUtc",
       ShiftScheduleEntity.class
     )
     .setParameter("b", branchId)
@@ -108,17 +108,17 @@ public class LaborLawChecker {
     }
 
     // ArbZG §4: Mandatory rest breaks
-    if (netWorkMinutes >= 360 && netWorkMinutes < 540 && breakMinutes < 30) {
+    if (netWorkMinutes > 360 && netWorkMinutes <= 540 && breakMinutes < 30) {
       violations.add(new Violation(
         "ARBZG_BREAK_INSUFFICIENT_30",
         "WARNING",
-        "Ca làm việc từ 6 đến 9 giờ phải có thời gian nghỉ tối thiểu 30 phút (hiện tại: " + breakMinutes + " phút).",
-        "Bei einer Arbeitszeit von 6 bis 9 Stunden ist eine Ruhepause von mindestens 30 Minuten vorgeschrieben.",
+        "Ca làm việc trên 6 đến 9 giờ phải có thời gian nghỉ tối thiểu 30 phút (hiện tại: " + breakMinutes + " phút).",
+        "Bei einer Arbeitszeit von mehr als 6 bis 9 Stunden ist eine Ruhepause von mindestens 30 Minuten vorgeschrieben.",
         "ArbZG §4",
         shift.employeeId,
         shift.shiftId
       ));
-    } else if (netWorkMinutes >= 540 && breakMinutes < 45) {
+    } else if (netWorkMinutes > 540 && breakMinutes < 45) {
       violations.add(new Violation(
         "ARBZG_BREAK_INSUFFICIENT_45",
         "WARNING",
@@ -164,16 +164,24 @@ public class LaborLawChecker {
           ));
         }
 
-        // Night work ban in gastronomy: after 22:00 (or after 20:00 for under 16)
-        int endHour = endLocal.getHour();
-        int endMinute = endLocal.getMinute();
+        // Rest period/working hours window under JArbSchG §14: 06:00 - 22:00 (20:00 for under 16)
+        int nightCutoff = age < 16 ? 20 : 22;
+        LocalTime cutoffTime = LocalTime.of(nightCutoff, 0);
+        LocalTime startTime = startLocal.toLocalTime();
+        LocalTime endTime = endLocal.toLocalTime();
         boolean crossesMidnight = endLocal.toLocalDate().isAfter(startLocal.toLocalDate());
-        if (crossesMidnight || (endHour > 22 || (endHour == 22 && endMinute > 0))) {
+        if (
+          crossesMidnight
+            || startTime.isBefore(LocalTime.of(6, 0))
+            || !startTime.isBefore(cutoffTime)
+            || endTime.isAfter(cutoffTime)
+            || !endTime.isAfter(LocalTime.of(6, 0))
+        ) {
           violations.add(new Violation(
             "JARBSCHG_NIGHT_WORK",
             "BLOCKER",
-            "JArbSchG: Nghiêm cấm bố trí lao động vị thành niên làm việc sau 22:00 trong ngành nhà hàng.",
-            "JArbSchG §14: Nachtarbeitsverbot für Jugendliche nach 22:00 Uhr in der Gastronomie.",
+            "JArbSchG §14: Cấm bố trí lao động vị thành niên làm việc ngoài khung 06:00–" + nightCutoff + ":00.",
+            "JArbSchG §14: Beschäftigungsverbot für Jugendliche außerhalb 06:00–" + nightCutoff + ":00 Uhr.",
             "JArbSchG §14",
             shift.employeeId,
             shift.shiftId
@@ -182,7 +190,7 @@ public class LaborLawChecker {
       }
     }
 
-    // Check Work Restrictions (e.g. Maternity Protection MuSchG or Medical)
+    // Check Work Restrictions (e.g. Maternity Protection MuSchG, Youth, or Medical)
     List<WorkRestrictionEntity> restrictions = em.createQuery(
       "SELECT r FROM WorkRestrictionEntity r WHERE r.employeeId = :e AND r.validFrom <= :d AND (r.validTo IS NULL OR r.validTo >= :d)",
       WorkRestrictionEntity.class
@@ -192,11 +200,17 @@ public class LaborLawChecker {
     .getResultList();
 
     for (WorkRestrictionEntity r : restrictions) {
+      LocalTime startTime = startLocal.toLocalTime();
+      LocalTime endTime = endLocal.toLocalTime();
+      boolean crossesMidnight = endLocal.toLocalDate().isAfter(startLocal.toLocalDate());
       if ("MATERNITY_PROTECTION".equalsIgnoreCase(r.restrictionType)) {
         // MuSchG §5: Night work ban between 20:00 and 06:00
-        int sHour = startLocal.getHour();
-        int eHour = endLocal.getHour();
-        boolean hasNightWork = (sHour >= 20 || sHour < 6 || eHour > 20 || eHour <= 6 || endLocal.toLocalDate().isAfter(startLocal.toLocalDate()));
+        boolean hasNightWork =
+          crossesMidnight
+            || startTime.isBefore(LocalTime.of(6, 0))
+            || !startTime.isBefore(LocalTime.of(20, 0))
+            || endTime.isAfter(LocalTime.of(20, 0))
+            || !endTime.isAfter(LocalTime.of(6, 0));
         if (hasNightWork && !r.allowNightShift) {
           violations.add(new Violation(
             "MUSCHG_NIGHT_WORK_BAN",
@@ -209,14 +223,60 @@ public class LaborLawChecker {
           ));
         }
 
-        // MuSchG §4: Max 8.5 hours daily
-        if (netWorkMinutes > 510) {
+        // MuSchG §4: Max 8.5 hours daily (or stricter if configured)
+        int maxDaily = r.maxDailyMinutes != null ? Math.min(r.maxDailyMinutes, 510) : 510;
+        if (netWorkMinutes > maxDaily) {
           violations.add(new Violation(
             "MUSCHG_OVERTIME_BAN",
             "BLOCKER",
             "Bảo vệ thai sản: Không được làm việc quá 8.5 giờ/ngày và nghiêm cấm làm thêm giờ.",
             "MuSchG §4: Höchstarbeitszeit von 8,5 Stunden täglich darf nicht überschritten werden.",
             "MuSchG §4",
+            shift.employeeId,
+            shift.shiftId
+          ));
+        }
+      } else {
+        if (r.maxDailyMinutes != null && netWorkMinutes > r.maxDailyMinutes) {
+          violations.add(new Violation(
+            "RESTRICTION_MAX_DAILY",
+            "BLOCKER",
+            "Vi phạm hạn chế lao động (" + r.restrictionType + "): vượt giới hạn " + r.maxDailyMinutes + " phút/ngày.",
+            "Verstoß gegen Beschäftigungsbeschränkung (" + r.restrictionType + "): maximale tägliche Arbeitszeit überschritten.",
+            r.schedulingRuleSummary,
+            shift.employeeId,
+            shift.shiftId
+          ));
+        }
+        if (!r.allowNightShift) {
+          boolean hasNightWork =
+            crossesMidnight
+              || startTime.isBefore(LocalTime.of(6, 0))
+              || !startTime.isBefore(LocalTime.of(22, 0))
+              || endTime.isAfter(LocalTime.of(22, 0))
+              || !endTime.isAfter(LocalTime.of(6, 0));
+          if (hasNightWork) {
+            violations.add(new Violation(
+              "RESTRICTION_NIGHT_BAN",
+              "BLOCKER",
+              "Vi phạm hạn chế lao động: nhân viên không được phân công ca đêm.",
+              "Verstoß gegen Beschäftigungsbeschränkung: Nachtarbeit nicht zulässig.",
+              r.schedulingRuleSummary,
+              shift.employeeId,
+              shift.shiftId
+            ));
+          }
+        }
+      }
+      if (!r.allowSunday) {
+        LocalDate endWorkDay = endLocal.minusNanos(1).toLocalDate();
+        if (startLocal.getDayOfWeek() == DayOfWeek.SUNDAY || endWorkDay.getDayOfWeek() == DayOfWeek.SUNDAY) {
+          violations.add(new Violation(
+            "RESTRICTION_SUNDAY_BAN",
+            "BLOCKER",
+            "Vi phạm hạn chế lao động: không được phân công làm việc vào Chủ nhật.",
+            "Verstoß gegen Beschäftigungsbeschränkung: Sonntagsarbeit nicht zulässig.",
+            r.schedulingRuleSummary,
             shift.employeeId,
             shift.shiftId
           ));
@@ -251,7 +311,7 @@ public class LaborLawChecker {
     }
 
     // 2. Check Rest Period between consecutive shifts (ArbZG §5: 11h minimum rest)
-    ShiftScheduleEntity prior = first.plannedEndUtc.isBefore(second.plannedStartUtc) ? first : second;
+    ShiftScheduleEntity prior = !first.plannedStartUtc.isAfter(second.plannedStartUtc) ? first : second;
     ShiftScheduleEntity latter = prior == first ? second : first;
 
     long restMinutes = ChronoUnit.MINUTES.between(prior.plannedEndUtc, latter.plannedStartUtc);

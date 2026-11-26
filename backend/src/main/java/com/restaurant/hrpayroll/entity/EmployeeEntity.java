@@ -17,7 +17,7 @@ public class EmployeeEntity {
   public String employeeCode;
 
   @Column(name = "legal_entity_id", nullable = false)
-  public Long legalEntityId;
+  public String legalEntityId;
 
   @Column(name = "first_name", nullable = false, length = 100)
   public String firstName;

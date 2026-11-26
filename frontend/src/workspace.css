@@ -1,0 +1,391 @@
+.workspace-shell {
+  --workspace-ink: #173e37;
+  --workspace-accent: #227260;
+  --workspace-wash: #e8f3ef;
+  --workspace-divider: color-mix(in srgb, var(--line) 82%, var(--ink));
+}
+.workspace-kitchen {
+  --workspace-ink: #49362b;
+  --workspace-accent: #8b5435;
+  --workspace-wash: #f6eee6;
+}
+.workspace-manager {
+  --workspace-ink: #203b51;
+  --workspace-accent: #326881;
+  --workspace-wash: #e9f2f6;
+}
+.workspace-employee {
+  --workspace-ink: #234540;
+  --workspace-accent: #2f756b;
+  --workspace-wash: #e9f4ef;
+}
+.dark .workspace-shell {
+  --workspace-wash: var(--surface-soft);
+  --workspace-accent: #9bdac5;
+}
+.workspace-shell .sidebar {
+  background: var(--workspace-ink);
+}
+.workspace-shell .page-heading {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 18px;
+  align-items: end;
+  margin-bottom: 20px;
+}
+.workspace-shell .page-heading h1 {
+  font-size: clamp(26px, 2.6vw, 38px);
+  line-height: 1.15;
+}
+.workspace-shell .admin-date {
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.workspace-shell .topbar {
+  height: 60px;
+}
+.workspace-shell .sidebar nav .nav-active {
+  background: #e2f0e8;
+  color: #16362a;
+}
+.workspace-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.workspace-actions button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--workspace-wash);
+  color: var(--workspace-accent);
+  border: 1px solid var(--line);
+  text-align: start;
+}
+.workspace-actions b {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 620;
+}
+.workspace-actions button:hover {
+  border-color: currentColor;
+}
+.workspace-shell .ops-metric {
+  border-radius: 9px;
+  border-top: 3px solid var(--workspace-accent);
+}
+.workspace-shell .ops-metric dd {
+  font-size: 35px;
+}
+.duty-panel {
+  margin-bottom: 22px;
+  overflow: hidden;
+}
+.duty-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  padding: 0 20px 16px;
+}
+.duty-filters label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+}
+.duty-filters :is(input, select) {
+  color: var(--ink);
+}
+.duty-filters :is(input, select),
+.workspace-shell main :where(input[type="date"], select) {
+  min-height: 36px;
+  padding: 5px 9px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.agenda-message {
+  margin: 0;
+  padding: 20px;
+  font-size: 14px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+.shift-agenda {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.shift-agenda li {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 13px 20px;
+  border-top: 1px solid var(--line);
+  font-size: 16px;
+}
+.shift-agenda small {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.agenda-time {
+  min-width: 126px;
+  border-inline-start: 3px solid var(--workspace-accent);
+  padding-inline-start: 12px;
+}
+.agenda-time b {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.agenda-identity {
+  flex: 1;
+}
+.agenda-draft,
+.agenda-published {
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 14px;
+}
+.agenda-draft {
+  background: var(--peach);
+  color: var(--ops-warn);
+}
+.agenda-published {
+  background: var(--mint);
+  color: var(--ops-accent);
+}
+.balance-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.data-table-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.data-table-heading h3 {
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.data-table-heading :is(p, span), .table-subline {
+  color: var(--muted);
+  font-size: 14px;
+}
+.table-subline {
+  display: block;
+  margin-top: 2px;
+  font-weight: 450;
+}
+.balance-table {
+  min-width: 900px;
+}
+.balance-table th:first-child {
+  min-width: 160px;
+}
+.balance-remaining {
+  color: var(--ops-accent);
+  font-weight: 650;
+}
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  min-width: 70rem;
+  font-variant-numeric: tabular-nums;
+}
+.workspace-shell
+  .main-content
+  :where(.panel, .rounded-2xl.border, .rounded-xl.border.bg-white) {
+  border-color: var(--line);
+  border-radius: 10px;
+  background-color: var(--surface);
+  box-shadow: none;
+}
+.workspace-shell .list-toolbar {
+  flex-wrap: wrap;
+}
+.workspace-shell
+  .main-content
+  :where(.text-xs.uppercase, .text-neutral-400.uppercase) {
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--muted);
+}
+.modal .modal-title {
+  font-weight: 650;
+}
+.modal
+  > :where(
+    form.space-y-5,
+    form.space-y-6,
+    form.space-y-4,
+    div.space-y-5,
+    div.space-y-4
+  ) {
+  padding: 18px 22px;
+}
+.modal :where(input, select, textarea) {
+  max-width: 100%;
+}
+.modal .modal-heading {
+  background: var(--surface-soft);
+}
+.modal-drawer .modal-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.workspace-shell .content-footer {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.duty-clock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: var(--workspace-ink);
+  color: white;
+  padding: 18px 20px;
+  border-radius: 10px;
+  margin-bottom: 14px;
+}
+.duty-clock p {
+  margin: 3px 0 0;
+  font-size: 14px;
+}
+.duty-clock h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+.duty-clock button {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: white;
+  color: #18392e;
+  font-size: 14px;
+  font-weight: 600;
+}
+.personal-duty {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.personal-duty .duty-clock {
+  margin: 0;
+}
+.kitchen-posting {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--workspace-wash);
+}
+.kitchen-posting svg {
+  color: var(--workspace-accent);
+  flex-shrink: 0;
+}
+.kitchen-posting h2 {
+  font-size: 13px;
+  color: var(--muted);
+}
+.kitchen-posting p {
+  margin-top: 2px;
+  font-size: 18px;
+  font-weight: 620;
+}
+.permission-matrix .field {
+  margin-bottom: 14px;
+}
+.permission-matrix .table-scroll {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.permission-granted {
+  font-weight: 650;
+  color: var(--green);
+}
+@media (max-width: 760px) {
+  .workspace-shell .page-heading {
+    align-items: start;
+  }
+  .workspace-actions {
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .workspace-actions button {
+    flex-direction: column;
+    align-items: flex-start;
+    min-height: 64px;
+    padding: 9px 10px;
+    gap: 6px;
+  }
+  .workspace-actions b {
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+  .workspace-shell .heading-actions:empty {
+    display: none;
+  }
+  .workspace-actions button > svg:last-child {
+    display: none;
+  }
+  .workspace-shell
+    .main-content
+    :where(
+      .flex.items-center.justify-end,
+      .flex.gap-2.border-b,
+      .heading-actions,
+      .list-filters
+    ) {
+    flex-wrap: wrap;
+  }
+  .workspace-shell .main-content :where(.table-scroll, .overflow-x-auto) {
+    max-width: 100%;
+  }
+  .duty-filters {
+    padding-inline: 14px;
+  }
+  .shift-agenda li {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px 10px;
+    padding: 12px 14px;
+  }
+  .shift-agenda li > span {
+    font-size: 14px;
+    justify-self: start;
+  }
+  .modal
+    > :where(
+      form.space-y-5,
+      form.space-y-6,
+      form.space-y-4,
+      div.space-y-5,
+      div.space-y-4
+    ) {
+    padding: 14px;
+  }
+}

@@ -18,8 +18,8 @@ public class AttendanceAdjustmentEntity {
   @Column(name = "change_request_id")
   public Long changeRequestId;
 
-  @Column(name = "adjusted_by_user_id", nullable = false)
-  public Long adjustedByUserId;
+  @Column(name = "adjusted_by_user_id", length = 255)
+  public String adjustedByUserId;
 
   @Column(name = "adjusted_at_utc", nullable = false)
   public Instant adjustedAtUtc = Instant.now();

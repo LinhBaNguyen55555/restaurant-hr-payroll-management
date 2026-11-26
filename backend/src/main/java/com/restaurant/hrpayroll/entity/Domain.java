@@ -123,6 +123,7 @@ public final class Domain {
     public String employeeId;
     public String branchId;
     public String workLocationId;
+    public Long positionId;
     public LocalDate validFrom;
     public LocalDate validTo;
     public String kind;

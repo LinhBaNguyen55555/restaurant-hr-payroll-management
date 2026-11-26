@@ -19,6 +19,14 @@ public class ReconciliationService {
   @PersistenceContext
   private EntityManager em;
 
+  private final Access access;
+  private final LeaveService leave;
+
+  public ReconciliationService(Access access, LeaveService leave) {
+    this.access = access;
+    this.leave = leave;
+  }
+
   public record ReconciliationKpiDto(
     Integer totalTimesheets,
     Integer totalWorkedMinutes,
@@ -47,7 +55,7 @@ public class ReconciliationService {
     Boolean requiresHrEscalation,
     String status,
     String decisionNotes,
-    Long decidedByUserId,
+    String decidedByUserId,
     Instant decidedAtUtc,
     Instant createdAtUtc
   ) {}
@@ -58,7 +66,7 @@ public class ReconciliationService {
     String employeeName,
     String employeeCode,
     String positionName,
-    Long branchId,
+    String branchId,
     LocalDate workDate,
     Instant plannedStartUtc,
     Instant plannedEndUtc,
@@ -78,7 +86,7 @@ public class ReconciliationService {
     List<AttendanceService.AttendanceExceptionDto> exceptions
   ) {}
 
-  public ReconciliationKpiDto getKpis(Long branchId, LocalDate from, LocalDate to) {
+  public ReconciliationKpiDto getKpis(String branchId, LocalDate from, LocalDate to) {
     LocalDate start = (from != null) ? from : LocalDate.now(BERLIN_ZONE).minusDays(7);
     LocalDate end = (to != null) ? to : LocalDate.now(BERLIN_ZONE).plusDays(1);
 
@@ -104,14 +112,14 @@ public class ReconciliationService {
     }
 
     Long openExc = em.createQuery(
-      "SELECT COUNT(x) FROM AttendanceExceptionEntity x WHERE x.status = 'OPEN'",
+      "SELECT COUNT(x) FROM AttendanceExceptionEntity x, AttendanceTimesheetEntity t WHERE x.timesheetId = t.timesheetId AND x.status = 'OPEN' AND t.branchId = :b AND t.workDate BETWEEN :s AND :eDate",
       Long.class
-    ).getSingleResult();
+    ).setParameter("b", branchId).setParameter("s", start).setParameter("eDate", end).getSingleResult();
 
     Long pendingReq = em.createQuery(
-      "SELECT COUNT(r) FROM AttendanceChangeRequestEntity r WHERE r.status IN ('PENDING', 'HR_ESCALATED')",
+      "SELECT COUNT(r) FROM AttendanceChangeRequestEntity r, AttendanceTimesheetEntity t WHERE r.timesheetId = t.timesheetId AND r.status IN ('PENDING', 'HR_ESCALATED') AND t.branchId = :b AND t.workDate BETWEEN :s AND :eDate",
       Long.class
-    ).getSingleResult();
+    ).setParameter("b", branchId).setParameter("s", start).setParameter("eDate", end).getSingleResult();
 
     return new ReconciliationKpiDto(
       list.size(),
@@ -124,7 +132,7 @@ public class ReconciliationService {
     );
   }
 
-  public List<ReconciliationItemDto> getReconciliationItems(Long branchId, LocalDate from, LocalDate to, String filterStatus) {
+  public List<ReconciliationItemDto> getReconciliationItems(String branchId, LocalDate from, LocalDate to, String filterStatus) {
     LocalDate start = (from != null) ? from : LocalDate.now(BERLIN_ZONE).minusDays(7);
     LocalDate end = (to != null) ? to : LocalDate.now(BERLIN_ZONE).plusDays(1);
 
@@ -150,7 +158,7 @@ public class ReconciliationService {
       EmployeeEntity emp = empMap.computeIfAbsent(t.employeeId, id -> em.find(EmployeeEntity.class, id));
       String empName = (emp != null) ? emp.displayName : "Nhân viên #" + t.employeeId;
       String empCode = (emp != null) ? emp.employeeCode : "E-";
-      String posName = resolvePosition(t.employeeId);
+      String posName = access.positionName(t.employeeId, t.branchId, t.workDate);
 
       int delta = 0;
       if (t.plannedStartUtc != null && t.plannedEndUtc != null && t.actualStartUtc != null && t.actualEndUtc != null) {
@@ -210,13 +218,26 @@ public class ReconciliationService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Vui lòng nhập lý do điều chỉnh rõ ràng (tối thiểu 5 ký tự)!");
     }
 
-    AttendanceTimesheetEntity ts = em.find(AttendanceTimesheetEntity.class, timesheetId);
+    AttendanceTimesheetEntity ts = em.find(AttendanceTimesheetEntity.class, timesheetId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
     if (ts == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy bảng chấm công ID #" + timesheetId);
     }
-    if (ts.isLocked) {
+    if (!Objects.equals(ts.employeeId, employeeId)) AuthService.forbidden();
+    if (ts.actualStartUtc == null || ts.actualEndUtc == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "Cần kết thúc ca trước khi yêu cầu sửa giờ.");
+    if (Boolean.TRUE.equals(ts.isLocked)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Kỳ công này đã được chốt và khóa, không thể gửi yêu cầu điều chỉnh trực tiếp!");
     }
+
+    Instant proposedStart = reqStart == null ? ts.actualStartUtc : reqStart;
+    Instant proposedEnd = reqEnd == null ? ts.actualEndUtc : reqEnd;
+    long grossMinutes = Duration.between(proposedStart, proposedEnd).toMinutes();
+    int breakMinutes = reqBreakMins == null ? Objects.requireNonNullElse(ts.actualBreakMinutes, 0) : reqBreakMins;
+    if (grossMinutes <= 0 || grossMinutes > 24 * 60 || breakMinutes < 0 || breakMinutes >= grossMinutes)
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Khoảng giờ hoặc thời lượng nghỉ sau điều chỉnh không hợp lệ.");
+    long pending = em.createQuery("""
+      select count(r) from AttendanceChangeRequestEntity r where r.timesheetId=:id and r.status in ('PENDING','HR_ESCALATED')
+      """, Long.class).setParameter("id", timesheetId).getSingleResult();
+    if (pending != 0) throw new ResponseStatusException(HttpStatus.CONFLICT, "Bảng công đã có yêu cầu đang chờ xử lý.");
 
     // Calculate delta minutes
     int delta = 0;
@@ -227,7 +248,9 @@ public class ReconciliationService {
       delta += (int) Math.abs(Duration.between(ts.actualEndUtc, reqEnd).toMinutes());
     }
 
-    boolean requiresHr = (delta > 60);
+    delta += Math.abs(breakMinutes - Objects.requireNonNullElse(ts.actualBreakMinutes, 0));
+    if (delta == 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Chưa thay đổi giờ công hoặc giờ nghỉ.");
+    boolean requiresHr = delta > 60;
 
     AttendanceChangeRequestEntity req = new AttendanceChangeRequestEntity();
     req.timesheetId = timesheetId;
@@ -245,13 +268,14 @@ public class ReconciliationService {
     return req;
   }
 
-  public List<ChangeRequestDto> getChangeRequests(Long branchId, String statusFilter) {
-    String query = "SELECT r FROM AttendanceChangeRequestEntity r ORDER BY r.requestId DESC";
+  public List<ChangeRequestDto> getChangeRequests(String branchId, String statusFilter) {
+    String query = "SELECT r FROM AttendanceChangeRequestEntity r, AttendanceTimesheetEntity ts WHERE r.timesheetId = ts.timesheetId AND ts.branchId = :b";
     if (statusFilter != null && !statusFilter.equalsIgnoreCase("ALL")) {
-      query = "SELECT r FROM AttendanceChangeRequestEntity r WHERE r.status = :s ORDER BY r.requestId DESC";
+      query += " AND r.status = :s";
     }
+    query += " ORDER BY r.requestId DESC";
 
-    var q = em.createQuery(query, AttendanceChangeRequestEntity.class);
+    var q = em.createQuery(query, AttendanceChangeRequestEntity.class).setParameter("b", branchId);
     if (statusFilter != null && !statusFilter.equalsIgnoreCase("ALL")) {
       q.setParameter("s", statusFilter);
     }
@@ -290,12 +314,12 @@ public class ReconciliationService {
 
   public AttendanceChangeRequestEntity approveChangeRequest(
     Long requestId,
-    Long currentUserId,
+    String currentUserId,
     String currentUserRole,
     Long currentEmployeeId,
     String decisionNotes
   ) {
-    AttendanceChangeRequestEntity req = em.find(AttendanceChangeRequestEntity.class, requestId);
+    AttendanceChangeRequestEntity req = em.find(AttendanceChangeRequestEntity.class, requestId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
     if (req == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy yêu cầu điều chỉnh ID #" + requestId);
     }
@@ -312,12 +336,8 @@ public class ReconciliationService {
     }
 
     // 2. Escalation Rule: Delta > 60 mins requires HR/Admin
-    boolean isHrOrAdmin = currentUserRole != null && (
-      currentUserRole.contains("HR") ||
-      currentUserRole.contains("ADMIN") ||
-      currentUserRole.contains("SYSTEM_ADMIN") ||
-      currentUserRole.contains("GENERAL_MANAGER")
-    );
+    var roles = Domain.csv(currentUserRole);
+    boolean isHrOrAdmin = roles.contains("HR_OFFICER") || roles.contains("SYSTEM_ADMIN");
 
     if (req.requiresHrEscalation && !isHrOrAdmin) {
       throw new ResponseStatusException(
@@ -326,20 +346,28 @@ public class ReconciliationService {
       );
     }
 
-    AttendanceTimesheetEntity ts = em.find(AttendanceTimesheetEntity.class, req.timesheetId);
+    AttendanceTimesheetEntity ts = em.find(AttendanceTimesheetEntity.class, req.timesheetId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
     if (ts == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy bảng chấm công tương ứng!");
     }
 
+    if (Boolean.TRUE.equals(ts.isLocked) || !Objects.equals(ts.employeeId, req.employeeId))
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Bảng công đã khóa hoặc không còn khớp với yêu cầu.");
     // Log adjustment audit
     AttendanceAdjustmentEntity adj = new AttendanceAdjustmentEntity();
     adj.timesheetId = ts.timesheetId;
     adj.changeRequestId = req.requestId;
-    adj.adjustedByUserId = (currentUserId != null) ? currentUserId : 1L;
-    adj.oldStartUtc = ts.actualStartUtc;
-    adj.newStartUtc = req.requestedStartUtc != null ? req.requestedStartUtc : ts.actualStartUtc;
-    adj.oldEndUtc = ts.actualEndUtc;
-    adj.newEndUtc = req.requestedEndUtc != null ? req.requestedEndUtc : ts.actualEndUtc;
+    em.createQuery("delete from AllowanceCalculationEntity a where a.timesheetId=:id")
+      .setParameter("id", ts.timesheetId).executeUpdate();
+    em.createQuery("delete from WorkTimeSegmentEntity s where s.timesheetId=:id")
+      .setParameter("id", ts.timesheetId).executeUpdate();
+    Instant oldStart = ts.actualStartUtc;
+    Instant oldEnd = ts.actualEndUtc;
+    adj.adjustedByUserId = currentUserId;
+    adj.oldStartUtc = oldStart;
+    adj.newStartUtc = req.requestedStartUtc != null ? req.requestedStartUtc : oldStart;
+    adj.oldEndUtc = oldEnd;
+    adj.newEndUtc = req.requestedEndUtc != null ? req.requestedEndUtc : oldEnd;
     adj.oldBreakMinutes = ts.actualBreakMinutes;
     adj.newBreakMinutes = req.requestedBreakMinutes != null ? req.requestedBreakMinutes : ts.actualBreakMinutes;
     adj.reason = "Duyệt yêu cầu #" + req.requestId + ": " + (decisionNotes != null ? decisionNotes : req.reason);
@@ -350,10 +378,12 @@ public class ReconciliationService {
     if (req.requestedEndUtc != null) ts.actualEndUtc = req.requestedEndUtc;
     if (req.requestedBreakMinutes != null) ts.actualBreakMinutes = req.requestedBreakMinutes;
 
+    int workedMins = 0;
+    int brk = (ts.actualBreakMinutes != null) ? ts.actualBreakMinutes : 0;
     if (ts.actualStartUtc != null && ts.actualEndUtc != null) {
       long total = Duration.between(ts.actualStartUtc, ts.actualEndUtc).toMinutes();
-      int brk = (ts.actualBreakMinutes != null) ? ts.actualBreakMinutes : 0;
-      ts.workedMinutes = Math.max(0, (int) total - brk);
+      workedMins = Math.max(0, (int) total - brk);
+      ts.workedMinutes = workedMins;
 
       if (ts.plannedStartUtc != null && ts.actualStartUtc.isAfter(ts.plannedStartUtc)) {
         ts.lateMinutes = (int) Duration.between(ts.plannedStartUtc, ts.actualStartUtc).toMinutes();
@@ -361,41 +391,165 @@ public class ReconciliationService {
         ts.lateMinutes = 0;
       }
 
+      if (ts.plannedEndUtc != null && ts.actualEndUtc.isBefore(ts.plannedEndUtc)) {
+        ts.earlyDepartureMinutes = (int) Duration.between(ts.actualEndUtc, ts.plannedEndUtc).toMinutes();
+      } else {
+        ts.earlyDepartureMinutes = 0;
+      }
+
       if (ts.plannedEndUtc != null && ts.actualEndUtc.isAfter(ts.plannedEndUtc)) {
         ts.overtimeMinutes = (int) Duration.between(ts.plannedEndUtc, ts.actualEndUtc).toMinutes();
       } else {
         ts.overtimeMinutes = 0;
       }
+
+      syncBreakRecords(ts, oldStart, oldEnd, brk);
     }
 
-    ts.status = "APPROVED";
+    // Resolve prior open exceptions and re-validate ArbZG §3/§4 on updated timestamps
+    List<AttendanceExceptionEntity> openExceptions = em.createQuery(
+      "SELECT x FROM AttendanceExceptionEntity x WHERE x.timesheetId = :ts AND x.status = 'OPEN'",
+      AttendanceExceptionEntity.class
+    ).setParameter("ts", ts.timesheetId).getResultList();
+    Instant now = Instant.now();
+    for (AttendanceExceptionEntity exc : openExceptions) {
+      exc.status = "RESOLVED";
+      exc.resolutionNotes = "Đã giải quyết qua duyệt điều chỉnh #" + req.requestId;
+      exc.resolvedByUserId = currentUserId;
+      exc.resolvedAtUtc = now;
+    }
+    ts.hasException = false;
+    boolean hasViolation = applyArbZgChecks(ts, workedMins, brk);
+
+    if (hasViolation) {
+      ts.status = "PENDING_APPROVAL";
+      ts.approvedByUserId = null;
+      ts.approvedAtUtc = null;
+    } else {
+      ts.status = "APPROVED";
+      ts.approvedByUserId = currentUserId;
+      ts.approvedAtUtc = now;
+      leave.recordRestObligations(ts);
+    }
     ts.recalculationRequired = true;
-    ts.approvedByUserId = currentUserId;
-    ts.approvedAtUtc = Instant.now();
-    ts.updatedAtUtc = Instant.now();
+    ts.updatedAtUtc = now;
 
     req.status = "APPROVED";
     req.decisionNotes = decisionNotes;
     req.decidedByUserId = currentUserId;
-    req.decidedAtUtc = Instant.now();
+    req.decidedAtUtc = now;
 
     return req;
   }
 
+  private void syncBreakRecords(AttendanceTimesheetEntity ts, Instant oldStart, Instant oldEnd, int breakMins) {
+    Instant windowStart = oldStart == null ? ts.actualStartUtc : (ts.actualStartUtc.isBefore(oldStart) ? ts.actualStartUtc : oldStart);
+    Instant windowEnd = oldEnd == null ? ts.actualEndUtc : (ts.actualEndUtc.isAfter(oldEnd) ? ts.actualEndUtc : oldEnd);
+    List<BreakRecordEntity> breaks = em.createQuery("""
+      SELECT b FROM BreakRecordEntity b WHERE b.employeeId = :e
+      AND b.startTimeUtc < :wEnd AND (b.endTimeUtc IS NULL OR b.endTimeUtc > :wStart)
+      ORDER BY b.startTimeUtc ASC
+      """, BreakRecordEntity.class)
+      .setParameter("e", ts.employeeId)
+      .setParameter("wStart", windowStart)
+      .setParameter("wEnd", windowEnd)
+      .getResultList();
+
+    long validBreakNanos = 0;
+    boolean allWithinAdjusted = true;
+    for (BreakRecordEntity b : breaks) {
+      if (b.endTimeUtc == null || !b.endTimeUtc.isAfter(b.startTimeUtc)
+        || b.startTimeUtc.isBefore(ts.actualStartUtc) || b.endTimeUtc.isAfter(ts.actualEndUtc)) {
+        allWithinAdjusted = false;
+        break;
+      }
+      validBreakNanos += Duration.between(b.startTimeUtc, b.endTimeUtc).toNanos();
+    }
+    long matchedBreakMins = validBreakNanos / Duration.ofMinutes(1).toNanos();
+    if (allWithinAdjusted && matchedBreakMins == breakMins) {
+      return;
+    }
+
+    for (BreakRecordEntity b : breaks) {
+      em.remove(b);
+    }
+    if (breakMins > 0) {
+      long totalSeconds = Duration.between(ts.actualStartUtc, ts.actualEndUtc).getSeconds();
+      long offsetSeconds = Math.max(0L, (totalSeconds - breakMins * 60L) / 2L);
+      BreakRecordEntity synced = new BreakRecordEntity();
+      synced.employeeId = ts.employeeId;
+      synced.shiftId = ts.shiftId;
+      synced.breakType = "STATUTORY_BREAK";
+      synced.startTimeUtc = ts.actualStartUtc.plusSeconds(offsetSeconds);
+      synced.endTimeUtc = synced.startTimeUtc.plus(Duration.ofMinutes(breakMins));
+      synced.durationMinutes = breakMins;
+      em.persist(synced);
+    }
+  }
+
+  private boolean applyArbZgChecks(AttendanceTimesheetEntity ts, int workedMins, int breakMins) {
+    boolean violated = false;
+    if (workedMins > 360 && workedMins <= 540 && breakMins < 30) {
+      violated = true;
+      createTimesheetException(ts, "INSUFFICIENT_BREAK", "WARNING",
+        "Vi phạm ArbZG §4: Ca làm việc trên 6 giờ phải nghỉ tối thiểu 30 phút (thực tế nghỉ " + breakMins + " phút)",
+        "Verstoß ArbZG §4: Bei mehr als 6 Stunden Arbeit mindestens 30 Minuten Ruhepause erforderlich");
+    }
+    if (workedMins > 540 && breakMins < 45) {
+      violated = true;
+      createTimesheetException(ts, "INSUFFICIENT_BREAK", "WARNING",
+        "Vi phạm ArbZG §4: Ca làm việc trên 9 giờ phải nghỉ tối thiểu 45 phút (thực tế nghỉ " + breakMins + " phút)",
+        "Verstoß ArbZG §4: Bei mehr als 9 Stunden Arbeit mindestens 45 Minuten Ruhepause erforderlich");
+    }
+    if (workedMins > 600) {
+      violated = true;
+      createTimesheetException(ts, "EXCESSIVE_WORK_HOURS", "CRITICAL",
+        "Vi phạm ArbZG §3: Tổng giờ làm việc thực tế " + (workedMins / 60.0) + "h vượt quá giới hạn 10 giờ/ngày",
+        "Kritischer Verstoß ArbZG §3: Arbeitszeit übersteigt 10 Stunden pro Tag");
+    }
+    if (violated) ts.hasException = true;
+    return violated;
+  }
+
+  private void createTimesheetException(AttendanceTimesheetEntity ts, String type, String severity, String vi, String de) {
+    AttendanceExceptionEntity exc = new AttendanceExceptionEntity();
+    exc.timesheetId = ts.timesheetId;
+    exc.employeeId = ts.employeeId;
+    exc.exceptionType = type;
+    exc.severity = severity;
+    exc.descriptionVi = vi;
+    exc.descriptionDe = de;
+    exc.status = "OPEN";
+    em.persist(exc);
+  }
+
   public AttendanceChangeRequestEntity rejectChangeRequest(
     Long requestId,
-    Long currentUserId,
+    String currentUserId,
+    String currentUserRole,
     Long currentEmployeeId,
     String decisionNotes
   ) {
-    AttendanceChangeRequestEntity req = em.find(AttendanceChangeRequestEntity.class, requestId);
+    AttendanceChangeRequestEntity req = em.find(AttendanceChangeRequestEntity.class, requestId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
     if (req == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy yêu cầu điều chỉnh ID #" + requestId);
+    }
+    if (!"PENDING".equals(req.status) && !"HR_ESCALATED".equals(req.status)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Yêu cầu này đã được xử lý từ trước (Trạng thái: " + req.status + ")");
     }
 
     // SoD Check: Cannot reject/decide own request
     if (currentEmployeeId != null && currentEmployeeId.equals(req.employeeId)) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Theo quy tắc SoD, bạn không được tự thao tác trên yêu cầu của bản thân!");
+    }
+
+    var roles = Domain.csv(currentUserRole);
+    boolean isHrOrAdmin = roles.contains("HR_OFFICER") || roles.contains("SYSTEM_ADMIN");
+    if (Boolean.TRUE.equals(req.requiresHrEscalation) && !isHrOrAdmin) {
+      throw new ResponseStatusException(
+        HttpStatus.FORBIDDEN,
+        "Yêu cầu này có chênh lệch thời gian > 60 phút (" + req.deltaMinutes + " phút), bắt buộc phải do HR hoặc Quản trị viên quyết định!"
+      );
     }
 
     req.status = "REJECTED";
@@ -408,13 +562,18 @@ public class ReconciliationService {
 
   public AttendanceTimesheetEntity approveTimesheetDirect(
     Long timesheetId,
-    Long currentUserId,
+    String currentUserId,
     Long currentEmployeeId
   ) {
-    AttendanceTimesheetEntity ts = em.find(AttendanceTimesheetEntity.class, timesheetId);
+    AttendanceTimesheetEntity ts = em.find(AttendanceTimesheetEntity.class, timesheetId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
     if (ts == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy bảng chấm công ID #" + timesheetId);
     }
+
+    if (Boolean.TRUE.equals(ts.isLocked) || !List.of("PENDING_APPROVAL", "ADJUSTED").contains(ts.status)
+      || ts.actualStartUtc == null || ts.actualEndUtc == null || !ts.actualEndUtc.isAfter(ts.actualStartUtc)
+      || Boolean.TRUE.equals(ts.hasException))
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Bảng công chưa đủ điều kiện duyệt.");
 
     // SoD Check: Manager cannot approve their own timesheet!
     if (currentEmployeeId != null && currentEmployeeId.equals(ts.employeeId)) {
@@ -427,11 +586,12 @@ public class ReconciliationService {
     ts.status = "APPROVED";
     ts.approvedByUserId = currentUserId;
     ts.approvedAtUtc = Instant.now();
+    leave.recordRestObligations(ts);
     ts.updatedAtUtc = Instant.now();
     return ts;
   }
 
-  public void lockPeriod(Long branchId, LocalDate lockUpToDate, Long currentUserId) {
+  public void lockPeriod(String branchId, LocalDate lockUpToDate, String currentUserId) {
     if (lockUpToDate == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Vui lòng chọn ngày chốt khóa kỳ công!");
     }
@@ -442,23 +602,30 @@ public class ReconciliationService {
     )
     .setParameter("b", branchId)
     .setParameter("upTo", lockUpToDate)
+    .setLockMode(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     .getResultList();
 
+    long pending = em.createQuery("""
+      select count(r) from AttendanceChangeRequestEntity r, AttendanceTimesheetEntity t
+      where r.timesheetId=t.timesheetId and t.branchId=:branch and t.workDate<=:day
+      and r.status in ('PENDING','HR_ESCALATED')
+      """, Long.class).setParameter("branch", branchId).setParameter("day", lockUpToDate).getSingleResult();
+    if (pending > 0 || list.stream().anyMatch(t -> !"APPROVED".equals(t.status)))
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Cần duyệt mọi bảng công của kỳ trước khi khóa.");
     Instant now = Instant.now();
     for (AttendanceTimesheetEntity t : list) {
       t.isLocked = true;
-      if (!"APPROVED".equals(t.status)) {
-        t.status = "LOCKED";
-      }
       t.updatedAtUtc = now;
     }
   }
 
-  public void resolveException(Long exceptionId, String notes, Long currentUserId) {
+  public void resolveException(Long exceptionId, String notes, String currentUserId) {
     AttendanceExceptionEntity exc = em.find(AttendanceExceptionEntity.class, exceptionId);
     if (exc == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy bất thường chấm công ID #" + exceptionId);
     }
+    var timesheet = em.find(AttendanceTimesheetEntity.class, exc.timesheetId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+    if (timesheet == null || Boolean.TRUE.equals(timesheet.isLocked)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Bảng công đã khóa hoặc không còn tồn tại.");
     exc.status = "RESOLVED";
     exc.resolutionNotes = notes != null ? notes : "Quản lý đã xác minh và giải quyết";
     exc.resolvedByUserId = currentUserId;
@@ -481,17 +648,5 @@ public class ReconciliationService {
     }
   }
 
-  private String resolvePosition(Long employeeId) {
-    try {
-      List<?> rows = em.createNativeQuery(
-        "SELECT pos.position_name_de FROM employee_assignments a JOIN positions pos ON a.position_id = pos.position_id WHERE a.employee_id = :eid ORDER BY a.assignment_id DESC LIMIT 1"
-      )
-      .setParameter("eid", employeeId)
-      .getResultList();
-      if (!rows.isEmpty() && rows.get(0) != null) {
-        return (String) rows.get(0);
-      }
-    } catch (Exception ignored) {}
-    return "Nhân viên";
-  }
+
 }

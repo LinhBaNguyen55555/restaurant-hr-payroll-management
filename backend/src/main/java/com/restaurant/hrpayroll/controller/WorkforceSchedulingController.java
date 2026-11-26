@@ -48,23 +48,26 @@ public class WorkforceSchedulingController {
 
   @GetMapping("/workforce/employees")
   public List<EmployeeService.EmployeeDto> listEmployees(
-    @RequestParam(required = false) Long branchId,
+    @RequestParam(required = false) String branchId,
     @RequestParam(required = false) String search,
     @RequestParam(required = false, defaultValue = "ALL") String status
   ) {
     access.require("workforce.read");
-    return employeeService.listEmployees(branchId, search, status);
+    if (branchId != null) access.scopedBranch(branchId);
+    return employeeService.listEmployees(branchId, search, status, null, access.permissions(auth.current()).contains("workforce.write"));
   }
 
   @GetMapping("/workforce/employees/{id}")
   public EmployeeService.EmployeeDetailDto getEmployeeDetail(@PathVariable Long id) {
-    access.require("workforce.read");
+    access.require("workforce.write");
+    access.requireManagedEmployee(id);
     return employeeService.getEmployeeDetail(id);
   }
 
   @PostMapping("/workforce/employees")
   public EmployeeEntity createEmployee(@RequestBody EmployeeService.EmployeeInput input) {
     access.require("workforce.write");
+    access.scopedBranch(input.branchId());
     return employeeService.createEmployee(input);
   }
 
@@ -74,6 +77,7 @@ public class WorkforceSchedulingController {
     @RequestBody EmploymentContractEntity contract
   ) {
     access.require("workforce.write");
+    access.requireManagedEmployee(id);
     employeeService.addContractRevision(id, contract);
   }
 
@@ -83,6 +87,9 @@ public class WorkforceSchedulingController {
     @RequestBody WageRateEntity wageRate
   ) {
     access.require("workforce.write");
+    var contract = em.find(EmploymentContractEntity.class, id);
+    if (contract == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    access.requireManagedEmployee(contract.employeeId);
     employeeService.addWageRateRevision(id, wageRate);
   }
 
@@ -92,6 +99,7 @@ public class WorkforceSchedulingController {
     @RequestBody WorkRestrictionEntity restriction
   ) {
     access.require("workforce.write");
+    access.requireManagedEmployee(id);
     employeeService.addWorkRestriction(id, restriction);
   }
 
@@ -103,13 +111,14 @@ public class WorkforceSchedulingController {
     HttpServletRequest req
   ) {
     access.require("workforce.write");
-    Domain.UserAccount current = auth.current();
-    Long userId = current != null ? parseLongSafe(current.id) : 1L;
-    return importService.processEmployeeCsv(payload.csv(), userId, payload.dryRun());
+    var result = importService.processEmployeeCsv(payload.csv(), access.actorId(), payload.dryRun());
+    if (!payload.dryRun()) auth.audit(auth.current(), "WORKFORCE_IMPORTED", String.valueOf(result.jobId()), null, "");
+    return result;
   }
 
   @GetMapping("/workforce/positions")
   public List<PositionEntity> listPositions() {
+    access.require("workforce.read");
     return em.createQuery("SELECT p FROM PositionEntity p WHERE p.active = true ORDER BY p.positionId", PositionEntity.class)
       .getResultList();
   }
@@ -117,31 +126,33 @@ public class WorkforceSchedulingController {
   // --- F03: SCHEDULING & SHIFTS ---
 
   @GetMapping("/scheduling/templates")
-  public List<ShiftTemplateEntity> listTemplates(@RequestParam(required = false) Long branchId) {
-    access.require("schedule.read");
+  public List<ShiftTemplateEntity> listTemplates(@RequestParam(required = false) String branchId) {
+    access.requireScheduleBranch(branchId);
     return schedulingService.listTemplates(branchId);
   }
 
   @PostMapping("/scheduling/templates")
   public ShiftTemplateEntity createTemplate(@RequestBody ShiftTemplateEntity template) {
-    access.require("schedule.write");
+    access.requireScheduleBranch(template.branchId);
     return schedulingService.createTemplate(template);
   }
 
   @GetMapping("/scheduling/shifts")
   public List<SchedulingService.ShiftDto> listShifts(
-    @RequestParam Long branchId,
+    @RequestParam(required = false) String branchId,
     @RequestParam String start,
     @RequestParam String end
   ) {
     access.require("schedule.read");
     Instant s = Instant.parse(start);
     Instant e = Instant.parse(end);
-    return schedulingService.listShifts(branchId, s, e);
+    Long employee = access.canScheduleBranch(branchId) ? null : access.requireSelf(null);
+    if (branchId != null && employee != null && !access.assignedTo(employee, branchId, LocalDate.now(java.time.ZoneId.of("Europe/Berlin")))) AuthService.forbidden();
+    return schedulingService.listShifts(branchId, s, e, employee);
   }
 
   public record CreateShiftInput(
-    Long branchId,
+    String branchId,
     Long employeeId,
     Long templateId,
     String start,
@@ -151,46 +162,48 @@ public class WorkforceSchedulingController {
 
   @PostMapping("/scheduling/shifts")
   public ShiftScheduleEntity createShift(@RequestBody CreateShiftInput in) {
-    access.require("schedule.write");
+    access.requireScheduleBranch(in.branchId());
     Instant s = Instant.parse(in.start());
     Instant e = Instant.parse(in.end());
+    if (!access.assignedTo(in.employeeId(), in.branchId(), s.atZone(java.time.ZoneId.of("Europe/Berlin")).toLocalDate())) AuthService.forbidden();
     return schedulingService.createShift(in.branchId(), in.employeeId(), in.templateId(), s, e, in.breakMinutes());
   }
 
   @DeleteMapping("/scheduling/shifts/{id}")
   public void deleteShift(@PathVariable Long id) {
-    access.require("schedule.write");
+    access.requireScheduleBranch(shift(id).branchId);
     schedulingService.deleteShift(id);
   }
 
-  public record CheckPayload(Long branchId, String start, String end) {}
+  public record CheckPayload(String branchId, String start, String end) {}
 
   @PostMapping("/scheduling/check")
   public LaborLawChecker.CheckSummary checkSchedule(@RequestBody CheckPayload in) {
-    access.require("schedule.read");
+    access.requireScheduleBranch(in.branchId());
     Instant s = Instant.parse(in.start());
     Instant e = Instant.parse(in.end());
     return lawChecker.validateSchedule(in.branchId(), s, e);
   }
 
-  public record PublishPayload(Long branchId, String start, String end, String changeReason) {}
+  public record PublishPayload(String branchId, String start, String end, String changeReason) {}
 
   @PostMapping("/scheduling/publish")
   public SchedulingService.PublishResult publishSchedule(@RequestBody PublishPayload in) {
-    access.require("schedule.write");
-    Domain.UserAccount current = auth.current();
-    Long userId = current != null ? parseLongSafe(current.id) : 1L;
+    access.requireScheduleBranch(in.branchId());
     Instant s = Instant.parse(in.start());
     Instant e = Instant.parse(in.end());
-    return schedulingService.publishSchedule(in.branchId(), s, e, userId, in.changeReason());
+    var result = schedulingService.publishSchedule(in.branchId(), s, e, access.actorId(), in.changeReason());
+    auth.audit(auth.current(), "SCHEDULE_PUBLISHED", s.toString(), in.branchId(), "");
+    return result;
   }
 
   // --- SHIFT SWAP ---
 
   @GetMapping("/scheduling/swap-requests")
-  public List<ShiftSwapRequestEntity> listSwapRequests(@RequestParam(required = false) Long branchId) {
+  public List<SchedulingService.SwapRequestDto> listSwapRequests(@RequestParam(required = false) String branchId) {
     access.require("schedule.read");
-    return schedulingService.listSwapRequests(branchId);
+    Long employee = access.canScheduleBranch(branchId) ? null : access.requireSelf(null);
+    return schedulingService.listSwapRequests(branchId, employee);
   }
 
   public record SwapRequestInput(Long sourceShiftId, Long targetEmployeeId, String reason) {}
@@ -198,8 +211,9 @@ public class WorkforceSchedulingController {
   @PostMapping("/scheduling/swap-requests")
   public ShiftSwapRequestEntity requestSwap(@RequestBody SwapRequestInput in) {
     access.require("schedule.read");
-    Domain.UserAccount current = auth.current();
-    Long empId = current != null ? parseLongSafe(current.id) : 2L;
+    Long empId = access.requireSelf(null);
+    var shift = shift(in.sourceShiftId());
+    if (!access.assignedTo(in.targetEmployeeId(), shift.branchId, shift.plannedStartUtc.atZone(java.time.ZoneId.of("Europe/Berlin")).toLocalDate())) AuthService.forbidden();
     return schedulingService.requestSwap(in.sourceShiftId(), in.targetEmployeeId(), empId, in.reason());
   }
 
@@ -207,25 +221,24 @@ public class WorkforceSchedulingController {
 
   @PostMapping("/scheduling/swap-requests/{id}/approve")
   public void approveSwap(@PathVariable Long id, @RequestBody(required = false) DecisionInput decision) {
-    access.require("schedule.write");
-    Domain.UserAccount current = auth.current();
-    Long userId = current != null ? parseLongSafe(current.id) : 1L;
-    schedulingService.approveSwap(id, userId, decision != null ? decision.reason() : null);
+    var shift = swapShift(id);
+    access.requireScheduleBranch(shift.branchId);
+    schedulingService.approveSwap(id, access.actorId(), decision != null ? decision.reason() : null);
+    auth.audit(auth.current(), "approveSwap", id.toString(), shift.branchId, "");
   }
 
   @PostMapping("/scheduling/swap-requests/{id}/reject")
   public void rejectSwap(@PathVariable Long id, @RequestBody(required = false) DecisionInput decision) {
-    access.require("schedule.write");
-    Domain.UserAccount current = auth.current();
-    Long userId = current != null ? parseLongSafe(current.id) : 1L;
-    schedulingService.rejectSwap(id, userId, decision != null ? decision.reason() : null);
+    var shift = swapShift(id);
+    access.requireScheduleBranch(shift.branchId);
+    schedulingService.rejectSwap(id, access.actorId(), decision != null ? decision.reason() : null);
+    auth.audit(auth.current(), "rejectSwap", id.toString(), shift.branchId, "");
   }
 
   @GetMapping("/workforce/notifications")
   public List<NotificationEntity> listNotifications() {
-    Domain.UserAccount current = auth.current();
-    if (current == null) return List.of();
-    Long userId = parseLongSafe(current.id);
+    Long userId = access.selfEmployee();
+    if (userId == null) return List.of();
     return em.createQuery(
       "SELECT n FROM NotificationEntity n WHERE n.recipientUserId = :u ORDER BY n.createdAtUtc DESC",
       NotificationEntity.class
@@ -235,11 +248,29 @@ public class WorkforceSchedulingController {
     .getResultList();
   }
 
-  private Long parseLongSafe(String s) {
-    try {
-      return Long.parseLong(s);
-    } catch (Exception e) {
-      return 1L;
-    }
+  public record Colleague(Long employeeId, String displayName) {}
+
+  @GetMapping("/scheduling/shifts/{id}/colleagues")
+  public List<Colleague> colleagues(@PathVariable Long id) {
+    var shift = shift(id);
+    if (!"PUBLISHED".equals(shift.status) || !access.requireSelf(null).equals(shift.employeeId)) AuthService.forbidden();
+    return em.createQuery("""
+      select e from EmployeeEntity e where e.employmentStatus='ACTIVE' and e.employeeId<>:id
+      order by e.displayName
+      """, EmployeeEntity.class).setParameter("id", shift.employeeId).getResultList().stream()
+      .filter(e -> access.assignedTo(e.employeeId, shift.branchId, shift.plannedStartUtc.atZone(java.time.ZoneId.of("Europe/Berlin")).toLocalDate()))
+      .map(e -> new Colleague(e.employeeId, e.displayName)).toList();
+  }
+
+  private ShiftScheduleEntity shift(Long id) {
+    var shift = id == null ? null : em.find(ShiftScheduleEntity.class, id);
+    if (shift == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    return shift;
+  }
+
+  private ShiftScheduleEntity swapShift(Long id) {
+    var request = em.find(ShiftSwapRequestEntity.class, id);
+    if (request == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    return shift(request.sourceShiftId);
   }
 }

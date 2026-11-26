@@ -30,59 +30,40 @@ public class ReconciliationController {
     this.access = access;
   }
 
-  private Long currentUserId() {
-    try {
-      return Long.parseLong(auth.current().id);
-    } catch (Exception e) {
-      return 1L;
-    }
+  private AttendanceTimesheetEntity scopedTimesheet(Long id) {
+    var timesheet = id == null ? null : em.find(AttendanceTimesheetEntity.class, id);
+    if (timesheet == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy bảng công.");
+    access.requireScheduleBranch(timesheet.branchId);
+    return timesheet;
   }
 
-  private String currentUserRole() {
-    try {
-      return auth.current().roles;
-    } catch (Exception e) {
-      return "RESTAURANT_MANAGER";
-    }
-  }
-
-  private Long currentEmployeeId() {
-    try {
-      Domain.UserAccount cur = auth.current();
-      List<EmployeeEntity> list = em.createQuery(
-        "SELECT e FROM EmployeeEntity e WHERE e.email = :email",
-        EmployeeEntity.class
-      )
-      .setParameter("email", cur.email)
-      .getResultList();
-
-      if (!list.isEmpty()) {
-        return list.get(0).employeeId;
-      }
-    } catch (Exception ignored) {}
-    return null;
+  private AttendanceTimesheetEntity scopedRequest(Long id) {
+    var request = em.find(AttendanceChangeRequestEntity.class, id);
+    return scopedTimesheet(request == null ? null : request.timesheetId);
   }
 
   @GetMapping("/kpis")
   public ReconciliationService.ReconciliationKpiDto getKpis(
-    @RequestParam Long branchId,
+    @RequestParam String branchId,
     @RequestParam(required = false) String fromDate,
     @RequestParam(required = false) String toDate
   ) {
     LocalDate from = (fromDate != null && !fromDate.isBlank()) ? LocalDate.parse(fromDate) : null;
     LocalDate to = (toDate != null && !toDate.isBlank()) ? LocalDate.parse(toDate) : null;
+    access.requireScheduleBranch(branchId);
     return reconciliationService.getKpis(branchId, from, to);
   }
 
   @GetMapping("/items")
   public List<ReconciliationService.ReconciliationItemDto> getItems(
-    @RequestParam Long branchId,
+    @RequestParam String branchId,
     @RequestParam(required = false) String fromDate,
     @RequestParam(required = false) String toDate,
     @RequestParam(required = false, defaultValue = "ALL") String filterStatus
   ) {
     LocalDate from = (fromDate != null && !fromDate.isBlank()) ? LocalDate.parse(fromDate) : null;
     LocalDate to = (toDate != null && !toDate.isBlank()) ? LocalDate.parse(toDate) : null;
+    access.requireScheduleBranch(branchId);
     return reconciliationService.getReconciliationItems(branchId, from, to, filterStatus);
   }
 
@@ -98,11 +79,7 @@ public class ReconciliationController {
 
   @PostMapping("/change-requests")
   public AttendanceChangeRequestEntity createChangeRequest(@RequestBody CreateChangeRequestInput in) {
-    Long empId = in.employeeId();
-    if (empId == null) {
-      empId = currentEmployeeId();
-      if (empId == null) empId = 1L;
-    }
+    Long empId = access.requireSelf(in.employeeId());
     Instant start = (in.requestedStartUtc() != null && !in.requestedStartUtc().isBlank()) ? Instant.parse(in.requestedStartUtc()) : null;
     Instant end = (in.requestedEndUtc() != null && !in.requestedEndUtc().isBlank()) ? Instant.parse(in.requestedEndUtc()) : null;
 
@@ -119,9 +96,10 @@ public class ReconciliationController {
 
   @GetMapping("/change-requests")
   public List<ReconciliationService.ChangeRequestDto> getChangeRequests(
-    @RequestParam Long branchId,
+    @RequestParam String branchId,
     @RequestParam(required = false, defaultValue = "ALL") String statusFilter
   ) {
+    access.requireScheduleBranch(branchId);
     return reconciliationService.getChangeRequests(branchId, statusFilter);
   }
 
@@ -132,15 +110,17 @@ public class ReconciliationController {
     @PathVariable Long id,
     @RequestBody(required = false) DecisionInput in
   ) {
-    access.require("schedule.write");
+    var timesheet = scopedRequest(id);
     String notes = in != null ? in.notes() : null;
-    return reconciliationService.approveChangeRequest(
+    var decided = reconciliationService.approveChangeRequest(
       id,
-      currentUserId(),
-      currentUserRole(),
-      currentEmployeeId(),
+      access.actorId(),
+      auth.current().roles,
+      access.selfEmployee(),
       notes
     );
+    auth.audit(auth.current(), "approveChangeRequest", id.toString(), timesheet.branchId, "");
+    return decided;
   }
 
   @PostMapping("/change-requests/{id}/reject")
@@ -148,33 +128,39 @@ public class ReconciliationController {
     @PathVariable Long id,
     @RequestBody(required = false) DecisionInput in
   ) {
-    access.require("schedule.write");
+    var timesheet = scopedRequest(id);
     String notes = in != null ? in.notes() : null;
-    return reconciliationService.rejectChangeRequest(
+    var decided = reconciliationService.rejectChangeRequest(
       id,
-      currentUserId(),
-      currentEmployeeId(),
+      access.actorId(),
+      auth.current().roles,
+      access.selfEmployee(),
       notes
     );
+    auth.audit(auth.current(), "rejectChangeRequest", id.toString(), timesheet.branchId, "");
+    return decided;
   }
 
   @PostMapping("/timesheets/{id}/approve")
   public AttendanceTimesheetEntity approveTimesheetDirect(@PathVariable Long id) {
-    access.require("schedule.write");
-    return reconciliationService.approveTimesheetDirect(
+    var timesheet = scopedTimesheet(id);
+    var approved = reconciliationService.approveTimesheetDirect(
       id,
-      currentUserId(),
-      currentEmployeeId()
+      access.actorId(),
+      access.selfEmployee()
     );
+    auth.audit(auth.current(), "TIMESHEET_APPROVED", id.toString(), timesheet.branchId, "");
+    return approved;
   }
 
-  public record LockPeriodInput(Long branchId, String lockUpToDate) {}
+  public record LockPeriodInput(String branchId, String lockUpToDate) {}
 
   @PostMapping("/lock-period")
   public Map<String, Object> lockPeriod(@RequestBody LockPeriodInput in) {
-    access.require("schedule.write");
-    LocalDate upTo = (in.lockUpToDate() != null) ? LocalDate.parse(in.lockUpToDate()) : LocalDate.now();
-    reconciliationService.lockPeriod(in.branchId(), upTo, currentUserId());
+    access.requireScheduleBranch(in.branchId());
+    LocalDate upTo = (in.lockUpToDate() != null) ? LocalDate.parse(in.lockUpToDate()) : LocalDate.now(java.time.ZoneId.of("Europe/Berlin"));
+    reconciliationService.lockPeriod(in.branchId(), upTo, access.actorId());
+    auth.audit(auth.current(), "TIMESHEETS_LOCKED", upTo.toString(), in.branchId(), "");
     return Map.of("success", true, "message", "Đã chốt và khóa kỳ công thành công đến ngày " + upTo);
   }
 
@@ -185,9 +171,11 @@ public class ReconciliationController {
     @PathVariable Long id,
     @RequestBody(required = false) ResolveExceptionInput in
   ) {
-    access.require("schedule.write");
+    var exception = em.find(AttendanceExceptionEntity.class, id);
+    var timesheet = scopedTimesheet(exception == null ? null : exception.timesheetId);
     String notes = in != null ? in.notes() : null;
-    reconciliationService.resolveException(id, notes, currentUserId());
+    reconciliationService.resolveException(id, notes, access.actorId());
+    auth.audit(auth.current(), "ATTENDANCE_EXCEPTION_RESOLVED", id.toString(), timesheet.branchId, "");
     return Map.of("success", true, "message", "Đã giải quyết bất thường chấm công #" + id);
   }
 }

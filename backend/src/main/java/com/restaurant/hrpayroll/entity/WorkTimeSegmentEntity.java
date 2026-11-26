@@ -12,14 +12,14 @@ public class WorkTimeSegmentEntity {
   @Column(name = "segment_id")
   public Long segmentId;
 
-  @Column(name = "attendance_id", nullable = false)
-  public Long attendanceId = 1L; // For legacy compatibility
+  @Column(name = "attendance_id")
+  public Long attendanceId; // Legacy records only
 
   @Column(name = "timesheet_id")
   public Long timesheetId;
 
   @Column(name = "employee_id", nullable = false)
-  public Long employeeId = 1L;
+  public Long employeeId;
 
   @Column(name = "segment_start_utc", nullable = false)
   public Instant segmentStartUtc;

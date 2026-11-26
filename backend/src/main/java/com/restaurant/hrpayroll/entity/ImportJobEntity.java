@@ -30,8 +30,8 @@ public class ImportJobEntity {
   @Column(name = "status", nullable = false, length = 30)
   public String status = "COMPLETED"; // PROCESSING, COMPLETED, FAILED, ROLLED_BACK
 
-  @Column(name = "created_by_user_id")
-  public Long createdByUserId;
+  @Column(name = "created_by_user_id", length = 255)
+  public String createdByUserId;
 
   @Column(name = "summary_report", columnDefinition = "TEXT")
   public String summaryReport;

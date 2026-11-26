@@ -35,8 +35,8 @@ public class LeaveRequestEntity {
   @Column(name = "status", nullable = false, length = 25)
   public String status = "PENDING"; // PENDING, APPROVED, REJECTED, CANCELLED
 
-  @Column(name = "reviewed_by_user_id")
-  public Long reviewedByUserId;
+  @Column(name = "reviewed_by_user_id", length = 255)
+  public String reviewedByUserId;
 
   @Column(name = "review_notes", length = 500)
   public String reviewNotes;

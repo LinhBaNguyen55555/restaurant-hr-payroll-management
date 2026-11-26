@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type InputHTMLAttributes } from "react";
+import { useCallback, useRef, useState, type FormEvent, type InputHTMLAttributes } from "react";
 import { Check, Clock3, MapPin, ShieldCheck } from "lucide-react";
 import {
   api,
@@ -13,6 +13,7 @@ import {
   type WorkLocation,
   type Workspace,
 } from "../lib/api";
+import { useDraftClose } from "./draft-close";
 import { Modal, Press } from "./experience";
 import { useI18n } from "../lib/i18n";
 
@@ -61,12 +62,30 @@ export function EditorModal({
   editor: Editor;
   data: Workspace;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (message: string) => Promise<void>;
 }) {
   const { lang, roleName } = useI18n();
   const row = "row" in editor ? editor.row : undefined;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const form = useRef<HTMLFormElement>(null);
+  const initialValues = useRef("");
+
+  const [active, setActive] = useState(row && "active" in row ? row.active : true);
+  const [fromDate, setFromDate] = useState(today);
+  const vi = lang === "vi";
+  const availableEntities = editor.kind === "branch" ? data.entities.filter((entity) =>
+    editor.row ? entity.id === editor.row.legalEntityId : entity.active &&
+      (data.user.roles.includes("SYSTEM_ADMIN") || data.user.legalEntityIds.includes(entity.id))
+  ) : [];
+  const missingParent = editor.kind === "branch" && !editor.row && availableEntities.length === 0;
+  const bindForm = useCallback((node: HTMLFormElement | null) => {
+    form.current = node;
+    if (node) initialValues.current = JSON.stringify([...new FormData(node)]);
+  }, []);
+  const { requestClose, confirming, confirmation } = useDraftClose(onClose, busy, () =>
+    !!form.current && JSON.stringify([...new FormData(form.current)]) !== initialValues.current
+  );
   const [branchId, setBranchId] = useState(
     editor.kind === "assignment"
       ? data.branches.find((b) => b.active)?.id || ""
@@ -89,11 +108,20 @@ export function EditorModal({
     assignment: lang === "vi" ? "Phân công nhân sự mới" : "Neue Teamzuordnung",
     end: lang === "vi" ? "Kết thúc phân công" : "Zeitraum beenden",
   };
+  const createAction: Record<Editor["kind"], string> = {
+    branch: vi ? "Thêm chi nhánh" : "Niederlassung hinzufügen",
+    entity: vi ? "Thêm pháp nhân" : "Rechtseinheit hinzufügen",
+    location: vi ? "Thêm địa điểm" : "Arbeitsort hinzufügen",
+    user: vi ? "Tạo tài khoản" : "Konto anlegen",
+    manager: vi ? "Phân công quản lý" : "Leitung zuordnen",
+    assignment: vi ? "Phân công nhân sự" : "Teammitglied zuordnen",
+    end: title.end,
+  };
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (busy || confirming) return;
     const f = new FormData(e.currentTarget);
     const val = (key: string) => String(f.get(key) || "");
-    const active = f.get("active") === "on";
     setBusy(true);
     setError("");
     let path = "";
@@ -179,7 +207,10 @@ export function EditorModal({
     }
     try {
       await api(path, method, payload);
-      await onSaved();
+      const name = val("name").trim();
+      await onSaved(name
+        ? (vi ? `${row ? "Đã cập nhật" : "Đã thêm"} ${name}.` : `${name} ${row ? "aktualisiert" : "angelegt"}.`)
+        : (vi ? "Đã lưu phân công." : "Zuordnung gespeichert."));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -195,11 +226,10 @@ export function EditorModal({
     <label className="field">
       <span>{lang === "vi" ? (deToViLabels[label] || label) : label}</span>
       <input
-        aria-label={label}
         name={name}
         defaultValue={value}
         required
-        maxLength={name === "address" ? 240 : 120}
+        maxLength={name === "address" ? 240 : ["city", "registrationNumber"].includes(name) ? 100 : 120}
         {...extra}
       />
     </label>
@@ -207,7 +237,7 @@ export function EditorModal({
   const state = (value = "BW") => (
     <label className="field">
       <span>{lang === "vi" ? "Vùng bang (Đức)" : "Bundesland"}</span>
-      <select aria-label="Bundesland" name="stateCode" defaultValue={value}>
+      <select name="stateCode" defaultValue={value}>
         {Object.entries(data.states)
           .sort((a, b) => a[1].localeCompare(b[1], "de"))
           .map(([id, label]) => (
@@ -220,31 +250,34 @@ export function EditorModal({
   );
   const dates = (
     <div className="form-grid">
-      {input("Gültig ab", "validFrom", today(), { type: "date" })}
-      {input("Gültig bis", "validTo", "", { type: "date", required: false })}
+      {input("Gültig ab", "validFrom", fromDate, { type: "date", onChange: (e) => setFromDate(e.target.value) })}
+      {input("Gültig bis (optional)", "validTo", "", { type: "date", required: false, min: fromDate })}
     </div>
   );
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={requestClose}
+      busy={busy}
       title={title[editor.kind]}
       description={
         editor.kind === "assignment"
           ? (lang === "vi" ? "Thiết lập địa điểm làm việc và thời hạn hiệu lực. Hệ thống sẽ từ chối nếu có xung đột trùng lặp." : "Einsatzort und Gültigkeit festlegen. Überlappende Zuordnungen werden abgelehnt.")
           : editor.kind === "end"
             ? (lang === "vi" ? "Lịch sử phân công sẽ được bảo lưu. Ngày kết thúc có hiệu lực bao gồm cả ngày này." : "Die Historie bleibt erhalten. Das Enddatum ist einschließlich gültig.")
-            : undefined
+            : row && "name" in row ? row.name
+              : "branch" in editor ? editor.branch.name
+              : (vi ? "Điền thông tin vào các trường bên dưới." : "Tragen Sie die Angaben in die folgenden Felder ein.")
       }
     >
-      <form onSubmit={submit}>
-        <div className="modal-body editor-body">
+      <form ref={bindForm} onSubmit={submit} aria-busy={busy}>
+        <fieldset className="modal-body editor-body" disabled={busy}>
           {editor.kind === "branch" && (
             <>
               {input("Name der Niederlassung", "name", editor.row?.name)}
               <div className="form-grid">
                 {input("Standortcode", "code", editor.row?.code, {
-                  pattern: "[A-Za-z0-9-]{2,24}",
+                  pattern: "[A-Za-z0-9\\-]{2,24}",
                   maxLength: 24,
                   placeholder: "STR-06",
                 })}
@@ -254,16 +287,12 @@ export function EditorModal({
                 <span>{lang === "vi" ? "Pháp nhân sở hữu" : "Rechtseinheit"}</span>
                 <select
                   name="legalEntityId"
-                  defaultValue={editor.row?.legalEntityId || ""}
+                  defaultValue={editor.row?.legalEntityId || (availableEntities.length === 1 ? availableEntities[0].id : "")}
                   required
                   disabled={!!editor.row}
                 >
                   {!editor.row && <option value="">{lang === "vi" ? "-- Vui lòng chọn --" : "Bitte wählen"}</option>}
-                  {data.entities
-                    .filter(
-                      (e) => e.active || e.id === editor.row?.legalEntityId,
-                    )
-                    .map((e) => (
+                  {availableEntities.map((e) => (
                       <option key={e.id} value={e.id}>
                         {e.name}
                       </option>
@@ -276,7 +305,11 @@ export function EditorModal({
                     value={editor.row.legalEntityId}
                   />
                 )}
+                {editor.row && <small className="field-hint">{vi ? "Pháp nhân được xác định khi tạo chi nhánh." : "Die Rechtseinheit wird bei der Anlage festgelegt."}</small>}
               </label>
+              {missingParent && <p className="form-error" role="status">{vi
+                ? "Bạn cần một pháp nhân đang hoạt động trong phạm vi quản lý để thêm chi nhánh."
+                : "Zum Anlegen benötigen Sie eine aktive Rechtseinheit in Ihrem Zuständigkeitsbereich."}</p>}
               {input("Vollständige Adresse", "address", editor.row?.address)}
               {state(editor.row?.stateCode)}
               <div className="note">
@@ -290,7 +323,7 @@ export function EditorModal({
               {input("Firmenname", "name", editor.row?.name)}
               <div className="form-grid">
                 {input("Unternehmenscode", "code", editor.row?.code, {
-                  pattern: "[A-Za-z0-9-]{2,24}",
+                  pattern: "[A-Za-z0-9\\-]{2,24}",
                   maxLength: 24,
                 })}
                 {input(
@@ -313,7 +346,7 @@ export function EditorModal({
               {state(editor.row?.stateCode || editor.branch.stateCode)}
               <div className="note">
                 <MapPin size={16} />
-                Zugehörig zu {editor.branch.name}
+                {vi ? "Thuộc chi nhánh" : "Zugehörig zu"} {editor.branch.name}
               </div>
             </>
           )}
@@ -330,7 +363,7 @@ export function EditorModal({
                   minLength: 12,
                   maxLength: 72,
                   autoComplete: "new-password",
-                  placeholder: "Mindestens 12 Zeichen",
+                  placeholder: vi ? "Ít nhất 12 ký tự" : "Mindestens 12 Zeichen",
                 })}
               <fieldset className="check-fieldset">
                 <legend>{lang === "vi" ? "Vai trò & Quyền hạn" : "Rollen"}</legend>
@@ -481,43 +514,52 @@ export function EditorModal({
             </>
           )}
           {editor.kind === "end" &&
-            input("Letzter gültiger Tag", "validTo", today(), {
+            input("Letzter gültiger Tag", "validTo", editor.row.validFrom > today() ? editor.row.validFrom : today(), {
               type: "date",
               min: editor.row.validFrom,
             })}
           {["branch", "entity", "location", "user"].includes(editor.kind) && (
-            <label className="checkbox-row active-checkbox">
-              <input
-                type="checkbox"
-                name="active"
-                defaultChecked={row && "active" in row ? row.active : true}
-              />
-              <span>{lang === "vi" ? "Đang hoạt động" : "Aktiv"}</span>
-            </label>
+            <div className="editor-state">
+              <label className="field">
+                <span>{vi ? "Trạng thái" : "Status"}</span>
+                <select name="active" value={active ? "active" : "inactive"}
+                  onChange={(e) => setActive(e.target.value === "active")}>
+                  <option value="active">{vi ? "Hoạt động" : "Aktiv"}</option>
+                  <option value="inactive">{vi ? "Ngừng hoạt động" : "Inaktiv"}</option>
+                </select>
+              </label>
+              {!active && <p role="status">{editor.kind === "user"
+                ? (vi ? "Tài khoản ngừng hoạt động sẽ không thể đăng nhập." : "Ein inaktives Konto kann sich nicht anmelden.")
+                : (vi ? "Hồ sơ vẫn được lưu để tra cứu lịch sử." : "Der Datensatz bleibt für die Historie erhalten.")}</p>}
+            </div>
           )}
           {error && (
             <div className="form-error" role="alert">
               {error}
             </div>
           )}
-        </div>
+        </fieldset>
         <div className="modal-footer">
           <button
             className="button button-secondary"
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             disabled={busy}
           >
             {lang === "vi" ? "Hủy" : "Abbrechen"}
           </button>
-          <Press type="submit" disabled={busy}>
+          <Press type="submit" disabled={busy || missingParent}>
             {busy
               ? (lang === "vi" ? "Đang lưu …" : "Wird gespeichert …")
-              : (lang === "vi" ? "Lưu thay đổi" : "Änderungen speichern")}
+              : row && "active" in row && row.active && !active
+                ? (vi ? "Lưu và ngừng hoạt động" : "Speichern und deaktivieren")
+                : editor.kind === "end" ? title.end
+                : row ? (vi ? "Lưu thay đổi" : "Änderungen speichern") : createAction[editor.kind]}
             <Check size={16} />
           </Press>
         </div>
       </form>
+      {confirmation}
     </Modal>
   );
 }

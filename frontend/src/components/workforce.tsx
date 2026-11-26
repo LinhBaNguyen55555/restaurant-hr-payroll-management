@@ -1,3 +1,5 @@
+import { useNotice } from "../lib/notice";
+import { useDraftChanged, useDraftClose } from "./draft-close";
 import { useState, useEffect } from "react";
 import {
   Users,
@@ -22,10 +24,11 @@ import {
 } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { Modal } from "./experience";
-import { formatPosition } from "./scheduling";
+import { formatPosition } from "../lib/positions";
 
-export function WorkforceView({ branches }: { branches: Branch[] }) {
+export function WorkforceView({ branches, canEdit }: { branches: Branch[]; canEdit: boolean }) {
   const { t, lang } = useI18n();
+  const notify = useNotice();
   const [employees, setEmployees] = useState<EmployeeDto[]>([]);
   const [positions, setPositions] = useState<PositionItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,7 +49,7 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
   const loadEmployees = async () => {
     setLoading(true);
     try {
-      const bId = selectedBranch !== "ALL" ? Number(selectedBranch) : undefined;
+      const bId = selectedBranch !== "ALL" ? encodeURIComponent(selectedBranch) : undefined;
       const data = await api<EmployeeDto[]>(
         `/workforce/employees?${bId ? `branchId=${bId}&` : ""}${search ? `search=${encodeURIComponent(search)}&` : ""}status=${selectedStatus}`
       );
@@ -77,6 +80,7 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
 
   // Open Employee Detail
   const openDetail = async (id: number) => {
+    if (!canEdit) return;
     setSelectedEmployeeId(id);
     setDetailLoading(true);
     setDetailTab("profile");
@@ -84,7 +88,7 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
       const data = await api<EmployeeDetailDto>(`/workforce/employees/${id}`);
       setDetailData(data);
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
       setSelectedEmployeeId(null);
     } finally {
       setDetailLoading(false);
@@ -100,7 +104,7 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
   return (
     <div className="workforce-page">
       {/* Header & Actions */}
-      <div className="flex items-center justify-end gap-3 mb-4">
+      {canEdit && <div className="flex items-center justify-end gap-3 mb-4">
         <button
           onClick={() => setShowImportModal(true)}
           className="flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-white dark:bg-emerald-950/40 text-slate-700 dark:text-emerald-200 hover:bg-slate-50 dark:hover:bg-emerald-900/50 shadow-sm transition"
@@ -115,7 +119,7 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
           <UserPlus size={16} />
           <span>{t("wf.add_employee")}</span>
         </button>
-      </div>
+      </div>}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 my-6">
@@ -155,7 +159,7 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
 
       {/* Search and Filters */}
       <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl border border-slate-200 dark:border-emerald-900/40 bg-white dark:bg-emerald-950/20 shadow-sm mb-6">
-        <div className="flex items-center gap-3 flex-1 min-w-[280px]">
+        <div className="flex items-center gap-3 grow basis-72 min-w-0">
           <div className="relative flex-1 max-w-md">
             <Search size={16} className="absolute left-3 top-3 text-slate-400" />
             <input
@@ -175,10 +179,11 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
           </button>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 min-w-0">
           <div className="flex items-center gap-2 text-sm">
             <Building size={16} className="text-slate-400" />
             <select
+              aria-label={lang === "vi" ? "Lọc theo chi nhánh" : "Nach Niederlassung filtern"}
               value={selectedBranch}
               onChange={(e) => setSelectedBranch(e.target.value)}
               className="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-white dark:bg-emerald-950/40 text-slate-800 dark:text-slate-200"
@@ -195,6 +200,7 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
           <div className="flex items-center gap-2 text-sm">
             <Filter size={16} className="text-slate-400" />
             <select
+              aria-label={lang === "vi" ? "Lọc theo trạng thái nhân viên" : "Nach Personalstatus filtern"}
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
               className="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-emerald-800/40 bg-white dark:bg-emerald-950/40 text-slate-800 dark:text-slate-200"
@@ -209,30 +215,31 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
       </div>
 
       {/* Employees Table */}
-      <div className="rounded-xl border border-slate-200 dark:border-emerald-900/40 bg-white dark:bg-emerald-950/20 overflow-hidden shadow-sm">
-        <table className="w-full text-left text-sm border-collapse">
+      <div className="rounded-xl border border-slate-200 dark:border-emerald-900/40 bg-white dark:bg-emerald-950/20 overflow-x-auto shadow-sm"
+        role="region" aria-label={lang === "vi" ? "Danh sách nhân viên" : "Mitarbeiterliste"} tabIndex={0}>
+        <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-slate-200 dark:border-emerald-900/40 bg-slate-50/50 dark:bg-emerald-950/40 text-slate-600 dark:text-slate-400 font-medium">
-              <th className="py-3 px-4">{t("wf.emp_code")}</th>
-              <th className="py-3 px-4">{t("wf.name")}</th>
-              <th className="py-3 px-4">{t("wf.position")}</th>
-              <th className="py-3 px-4">{t("wf.branch")}</th>
-              <th className="py-3 px-4">{t("wf.contract")}</th>
-              <th className="py-3 px-4">{t("wf.wage")}</th>
-              <th className="py-3 px-4">{t("wf.restrictions")}</th>
-              <th className="py-3 px-4 text-right">{t("ui.actions")}</th>
+              <th scope="col" className="py-3 px-4">{t("wf.emp_code")}</th>
+              <th scope="col" className="py-3 px-4">{t("wf.name")}</th>
+              <th scope="col" className="py-3 px-4">{t("wf.position")}</th>
+              <th scope="col" className="py-3 px-4">{t("wf.branch")}</th>
+              <th scope="col" className="py-3 px-4">{t("wf.contract")}</th>
+              <th scope="col" className="py-3 px-4">{t("wf.wage")}</th>
+              <th scope="col" className="py-3 px-4">{t("wf.restrictions")}</th>
+              <th scope="col" className="py-3 px-4">{t("ui.actions")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-emerald-900/30">
             {loading ? (
               <tr>
-                <td colSpan={8} className="py-12 text-center text-slate-400">
+                <td colSpan={8} className="py-12 text-slate-400">
                   Đang tải danh sách nhân sự...
                 </td>
               </tr>
             ) : employees.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-12 text-center text-slate-400">
+                <td colSpan={8} className="py-12 text-slate-400">
                   Không tìm thấy nhân viên phù hợp.
                 </td>
               </tr>
@@ -243,26 +250,26 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
                   className="hover:bg-slate-50/80 dark:hover:bg-emerald-900/20 transition cursor-pointer"
                   onClick={() => openDetail(emp.employeeId)}
                 >
-                  <td className="py-3.5 px-4 font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                  <td className="py-3.5 px-4 font-semibold text-emerald-600 dark:text-emerald-400">
                     {emp.employeeCode}
                   </td>
                   <td className="py-3.5 px-4">
-                    <div className="font-semibold text-slate-900 dark:text-white">
+                    <div className="table-prose font-semibold text-slate-900 dark:text-white">
                       {emp.displayName}
                     </div>
-                    <div className="text-xs text-slate-400">{emp.email}</div>
+                    <div className="table-prose text-slate-400">{emp.email}</div>
                   </td>
                   <td className="py-3.5 px-4">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 dark:bg-emerald-950/60 text-slate-700 dark:text-emerald-300">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded font-medium bg-slate-100 dark:bg-emerald-950/60 text-slate-700 dark:text-emerald-300">
                       {formatPosition(emp.positionNameDe || emp.positionNameEn || emp.positionCode, lang)}
                     </span>
                   </td>
                   <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
-                    {emp.branchName || "Chi nhánh chính"}
+                    <span className="table-prose">{emp.branchName || "Chi nhánh chính"}</span>
                   </td>
                   <td className="py-3.5 px-4">
                     <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${
+                      className={`inline-flex items-center px-2 py-0.5 rounded table-tag font-semibold ${
                         emp.contractType === "MINIJOB"
                           ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
                           : emp.contractType === "UNLIMITED"
@@ -283,23 +290,23 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
                     )}
                   </td>
                   <td className="py-3.5 px-4">
-                    {emp.activeRestrictions && emp.activeRestrictions.length > 0 ? (
+                    {emp.activeRestrictions && emp.activeRestrictions.length> 0 ? (
                       <div className="flex flex-col gap-1">
                         {emp.activeRestrictions.map((r, i) => (
                           <span
                             key={i}
-                            className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 font-medium"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 font-medium"
                           >
                             <Shield size={12} />
-                            {r}
+                            <span className="table-prose">{r}</span>
                           </span>
                         ))}
                       </div>
                     ) : (
-                      <span className="text-xs text-slate-400">Tiêu chuẩn</span>
+                      <span className="text-slate-400">Tiêu chuẩn</span>
                     )}
                   </td>
-                  <td className="py-3.5 px-4 text-right">
+                  <td className="py-3.5 px-4">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -570,11 +577,9 @@ export function WorkforceView({ branches }: { branches: Branch[] }) {
       {/* Modal: Import CSV */}
       {showImportModal && (
         <ImportCsvModal
+          exampleBranchId={branches[0]?.id ?? ""}
           onClose={() => setShowImportModal(false)}
-          onSuccess={() => {
-            setShowImportModal(false);
-            loadEmployees();
-          }}
+          onSuccess={loadEmployees}
         />
       )}
     </div>
@@ -599,39 +604,24 @@ function AddEmployeeModal({
   const [email, setEmail] = useState("");
   const [dob, setDob] = useState("");
   const [hireDate, setHireDate] = useState(new Date().toISOString().slice(0, 10));
-  const [branchId, setBranchId] = useState(branches[0]?.id || "1");
-  const [positionId, setPositionId] = useState(positions[0]?.positionId || 2);
+  const [branchId, setBranchId] = useState(branches[0]?.id ?? "");
+  const [positionId, setPositionId] = useState(positions[0]?.positionId ?? 0);
   const [contractType, setContractType] = useState("UNLIMITED");
   const [payType, setPayType] = useState("HOURLY");
   const [weeklyHours, setWeeklyHours] = useState(40);
-  const [hourlyWage, setHourlyWage] = useState("13.50");
+  const [hourlyWage, setHourlyWage] = useState("16.00");
   const [monthlyWage, setMonthlyWage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const changed = useDraftChanged([code, firstName, lastName, email, dob, hireDate, branchId, positionId, contractType, payType, weeklyHours, hourlyWage, monthlyWage]);
+  const { requestClose, confirmation } = useDraftClose(onClose, busy, () => changed);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
     // German MiLoG Validation
-    if (payType === "HOURLY" && Number(hourlyWage) < 12.41) {
-      setError(
-        lang === "vi"
-          ? "Vi phạm luật tiền lương tối thiểu Đức (MiLoG): Mức lương giờ phải từ 12,41 € trở lên."
-          : "Verstoß gegen das Mindestlohngesetz (MiLoG): Mindestens 12,41 €/Stunde erforderlich."
-      );
-      return;
-    }
-
-    if (contractType === "MINIJOB" && monthlyWage && Number(monthlyWage) > 538) {
-      setError(
-        lang === "vi"
-          ? "Hợp đồng Minijob không được vượt quá mức trần 538,00 €/tháng theo luật Đức."
-          : "Minijob-Vergütung darf 538,00 €/Monat nicht überschreiten."
-      );
-      return;
-    }
-
     setBusy(true);
     try {
       await api("/workforce/employees", "POST", {
@@ -641,8 +631,9 @@ function AddEmployeeModal({
         email,
         dateOfBirth: dob || null,
         hireDate,
-        branchId: Number(branchId),
-        positionId: Number(positionId),
+        branchId,
+        legalEntityId: branches.find((branch) => branch.id === branchId)?.legalEntityId,
+        positionId: positionId || null,
         contractType,
         payType,
         weeklyMinutes: Number(weeklyHours) * 60,
@@ -661,17 +652,18 @@ function AddEmployeeModal({
     <Modal
       open={true}
       wide={true}
+      busy={busy}
       title={lang === "vi" ? "Thêm nhân viên mới" : "Neuen Mitarbeiter anlegen"}
       description={
         lang === "vi"
           ? "Nhập hồ sơ cá nhân, phân công vị trí và thiết lập hợp đồng lao động tuân thủ luật Đức (MiLoG / ArbZG)."
           : "Stammdaten, Einsatzort und Vertragsdaten gemäß deutschem Arbeitsrecht erfassen."
       }
-      onClose={onClose}
+      onClose={requestClose}
     >
       <form onSubmit={submit} className="space-y-6 pt-1">
         {error && (
-          <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 text-sm font-medium flex items-center gap-2">
+          <div role="alert" className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 text-sm font-medium flex items-center gap-2">
             <AlertTriangle size={17} className="shrink-0" />
             <span>{error}</span>
           </div>
@@ -686,10 +678,10 @@ function AddEmployeeModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-                {lang === "vi" ? "Mã nhân sự *" : "Personalnummer *"}
-              </label>
-              <input
+              <label htmlFor="workforce-code" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Mã nhân sự *" : "Personalnummer *"}
+            </label>
+              <input id="workforce-code"
                 type="text"
                 placeholder="E-0011"
                 required
@@ -699,10 +691,10 @@ function AddEmployeeModal({
               />
             </div>
             <div>
-              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-                {lang === "vi" ? "Tên *" : "Vorname *"}
-              </label>
-              <input
+              <label htmlFor="workforce-firstName" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Tên *" : "Vorname *"}
+            </label>
+              <input id="workforce-firstName"
                 type="text"
                 placeholder="Max"
                 required
@@ -712,10 +704,10 @@ function AddEmployeeModal({
               />
             </div>
             <div>
-              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-                {lang === "vi" ? "Họ *" : "Nachname *"}
-              </label>
-              <input
+              <label htmlFor="workforce-lastName" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Họ *" : "Nachname *"}
+            </label>
+              <input id="workforce-lastName"
                 type="text"
                 placeholder="Mustermann"
                 required
@@ -728,10 +720,10 @@ function AddEmployeeModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-                {lang === "vi" ? "Email liên lạc" : "E-Mail-Adresse"}
-              </label>
-              <input
+              <label htmlFor="workforce-email" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Email liên lạc" : "E-Mail-Adresse"}
+            </label>
+              <input id="workforce-email"
                 type="email"
                 placeholder="max.mustermann@restaurant.example"
                 value={email}
@@ -740,10 +732,10 @@ function AddEmployeeModal({
               />
             </div>
             <div>
-              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-                {lang === "vi" ? "Ngày sinh (YYYY-MM-DD)" : "Geburtsdatum"}
-              </label>
-              <input
+              <label htmlFor="workforce-dob" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Ngày sinh (YYYY-MM-DD)" : "Geburtsdatum"}
+            </label>
+              <input id="workforce-dob"
                 type="date"
                 value={dob}
                 onChange={(e) => setDob(e.target.value)}
@@ -762,10 +754,10 @@ function AddEmployeeModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-                {lang === "vi" ? "Chi nhánh làm việc *" : "Stammniederlassung *"}
-              </label>
-              <select
+              <label htmlFor="workforce-branchId" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Chi nhánh làm việc *" : "Stammniederlassung *"}
+            </label>
+              <select id="workforce-branchId"
                 value={branchId}
                 onChange={(e) => setBranchId(e.target.value)}
                 className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
@@ -778,14 +770,15 @@ function AddEmployeeModal({
               </select>
             </div>
             <div>
-              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-                {lang === "vi" ? "Vị trí đảm nhận *" : "Position *"}
-              </label>
-              <select
+              <label htmlFor="workforce-positionId" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Vị trí đảm nhận *" : "Position *"}
+            </label>
+              <select id="workforce-positionId"
                 value={positionId}
                 onChange={(e) => setPositionId(Number(e.target.value))}
                 className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
               >
+                {!positions.length && <option value={0}>{lang === "vi" ? "Chưa có vị trí" : "Keine Position verfügbar"}</option>}
                 {positions.map((p) => (
                   <option key={p.positionId} value={p.positionId}>
                     {formatPosition(p.positionNameDe, lang)} ({p.positionNameDe})
@@ -805,25 +798,25 @@ function AddEmployeeModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-                {lang === "vi" ? "Loại hợp đồng *" : "Vertragsart *"}
-              </label>
-              <select
+              <label htmlFor="workforce-contractType" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Loại hợp đồng *" : "Vertragsart *"}
+            </label>
+              <select id="workforce-contractType"
                 value={contractType}
                 onChange={(e) => setContractType(e.target.value)}
                 className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
               >
                 <option value="UNLIMITED">{lang === "vi" ? "Không thời hạn (Unbefristet)" : "Unbefristet"}</option>
                 <option value="FIXED_TERM">{lang === "vi" ? "Có thời hạn (Befristet)" : "Befristet"}</option>
-                <option value="MINIJOB">Minijob (≤ 538 €)</option>
+                <option value="MINIJOB">Minijob</option>
                 <option value="PROBATION">{lang === "vi" ? "Thử việc (Probezeit)" : "Probezeit"}</option>
               </select>
             </div>
             <div>
-              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-                {lang === "vi" ? "Hình thức lương *" : "Vergütungsmodell *"}
-              </label>
-              <select
+              <label htmlFor="workforce-payType" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Hình thức lương *" : "Vergütungsmodell *"}
+            </label>
+              <select id="workforce-payType"
                 value={payType}
                 onChange={(e) => setPayType(e.target.value)}
                 className="w-full h-11 px-3.5 text-sm font-medium rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
@@ -842,7 +835,7 @@ function AddEmployeeModal({
                 <input
                   type="number"
                   step="0.01"
-                  min="12.41"
+                  min="0.01"
                   required
                   value={hourlyWage}
                   onChange={(e) => setHourlyWage(e.target.value)}
@@ -863,10 +856,10 @@ function AddEmployeeModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-                {lang === "vi" ? "Ngày tuyển dụng / Bắt đầu *" : "Eintrittsdatum *"}
-              </label>
-              <input
+              <label htmlFor="workforce-hireDate" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Ngày tuyển dụng / Bắt đầu *" : "Eintrittsdatum *"}
+            </label>
+              <input id="workforce-hireDate"
                 type="date"
                 required
                 value={hireDate}
@@ -875,10 +868,10 @@ function AddEmployeeModal({
               />
             </div>
             <div>
-              <label className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
-                {lang === "vi" ? "Giờ làm việc tuần (giờ)" : "Wochenstunden"}
-              </label>
-              <input
+              <label htmlFor="workforce-weeklyHours" className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+              {lang === "vi" ? "Giờ làm việc tuần (giờ)" : "Wochenstunden"}
+            </label>
+              <input id="workforce-weeklyHours"
                 type="number"
                 min="1"
                 max="60"
@@ -894,7 +887,7 @@ function AddEmployeeModal({
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-emerald-900/40">
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose} disabled={busy}
             className="px-5 py-2.5 rounded-xl border border-slate-300 dark:border-emerald-800 bg-white dark:bg-emerald-950/60 text-slate-700 dark:text-emerald-200 font-semibold text-sm hover:bg-slate-100 dark:hover:bg-emerald-900/40 shadow-xs transition cursor-pointer"
           >
             {lang === "vi" ? "Hủy bỏ" : "Abbrechen"}
@@ -913,21 +906,28 @@ function AddEmployeeModal({
           </button>
         </div>
       </form>
+      {confirmation}
     </Modal>
   );
 }
 
-function ImportCsvModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function ImportCsvModal({ onClose, onSuccess, exampleBranchId }: { onClose: () => void; onSuccess: () => void; exampleBranchId: string }) {
   const { lang } = useI18n();
-  const [csvText, setCsvText] = useState(
-    `employee_code,first_name,last_name,email,date_of_birth,hire_date,branch_id,position_id,contract_type,pay_type,weekly_hours,hourly_wage,monthly_wage\nE-0020,Johannes,Klein,johannes.klein@restaurant.example,1995-04-12,2026-03-01,1,2,UNLIMITED,HOURLY,40,14.50,\nE-0021,Clara,Schulz,clara.schulz@restaurant.example,2002-08-25,2026-03-01,1,4,MINIJOB,HOURLY,10,13.00,520.00`
-  );
+  const example = `employee_code,first_name,last_name,email,date_of_birth,hire_date,branch_id,position_id,contract_type,pay_type,weekly_hours,hourly_wage,monthly_wage\nE-0020,Johannes,Klein,johannes.klein@restaurant.example,1995-04-12,2026-03-01,${exampleBranchId},,UNLIMITED,HOURLY,40,14.60,\nE-0021,Clara,Schulz,clara.schulz@restaurant.example,2002-08-25,2026-03-01,${exampleBranchId},,MINIJOB,HOURLY,8,14.60,`;
+  const [csvText, setCsvText] = useState("");
+  const [error, setError] = useState("");
   const [dryRun, setDryRun] = useState(true);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const submitted = !!result && !result.dryRun && result.successRows > 0;
 
+
+  const { requestClose, confirmation } = useDraftClose(onClose, busy, () => !!csvText.trim() && !submitted);
   const runImport = async (isDry: boolean) => {
+    if (busy || !csvText.trim()) return;
     setBusy(true);
+    setError("");
+    setResult(null);
     setDryRun(isDry);
     try {
       const res = await api<ImportResult>("/workforce/import", "POST", {
@@ -939,7 +939,7 @@ function ImportCsvModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
         onSuccess();
       }
     } catch (e) {
-      alert((e as Error).message);
+      setError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -949,13 +949,14 @@ function ImportCsvModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
     <Modal
       open={true}
       wide={true}
-      title={lang === "vi" ? "Nhập danh sách nhân sự (CSV/Excel)" : "Mitarbeiter importieren (CSV)"}
+      busy={busy}
+      title={lang === "vi" ? "Nhập danh sách nhân sự từ CSV" : "Mitarbeiter importieren (CSV)"}
       description={
         lang === "vi"
-          ? "Tải lên hoặc dán danh sách nhân viên theo định dạng chuẩn. Có chế độ kiểm tra trước (Dry-Run) để phát hiện lỗi."
-          : "Mitarbeiterdaten im CSV-Format importieren. Mit Vorabprüfung (Dry-Run)."
+          ? "Chọn tệp CSV hoặc dán nội dung. Dùng “Kiểm tra dữ liệu” để xem lỗi trước khi nhập."
+          : "CSV-Datei wählen oder Inhalt einfügen. Mit der Vorabprüfung können Sie die Zeilen vor dem Import prüfen."
       }
-      onClose={onClose}
+      onClose={requestClose}
     >
       <div className="space-y-4 pt-1">
         <div className="p-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/40 bg-slate-50/50 dark:bg-emerald-950/20 text-xs text-slate-600 dark:text-slate-300">
@@ -967,16 +968,40 @@ function ImportCsvModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
           </code>
         </div>
 
-        <textarea
+        <label className="field">
+          <span>{lang === "vi" ? "Chọn tệp CSV" : "CSV-Datei auswählen"}</span>
+          <input type="file" accept=".csv,text/csv" disabled={busy} onChange={async (event) => {
+            const file = event.currentTarget.files?.[0];
+            if (!file) return;
+            event.currentTarget.value = "";
+            setBusy(true);
+            setError("");
+            setResult(null);
+            try {
+              setCsvText((await file.text()).replace(/^\uFEFF/, ""));
+            } catch {
+              setError(lang === "vi" ? "Không đọc được tệp. Hãy chọn lại hoặc dán nội dung CSV." : "Datei konnte nicht gelesen werden. Bitte erneut auswählen oder CSV-Inhalt einfügen.");
+            } finally {
+              setBusy(false);
+            }
+          }} />
+        </label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <label className="field">
+          <span>{lang === "vi" ? "Nội dung CSV" : "CSV-Inhalt"}</span>
+          <textarea
+          disabled={busy}
+          placeholder={example}
           rows={8}
           value={csvText}
-          onChange={(e) => setCsvText(e.target.value)}
+          onChange={(e) => { setCsvText(e.target.value); setResult(null); setError(""); }}
           className="w-full p-3.5 font-mono text-xs rounded-xl border border-slate-300 dark:border-emerald-800/60 bg-white dark:bg-emerald-950/40 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition shadow-xs"
         />
 
+        </label>
         {/* Results summary */}
         {result && (
-          <div
+          <div role="status"
             className={`p-4 rounded-xl border text-sm ${
               result.errorRows > 0
                 ? "bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-900/60 text-amber-900 dark:text-amber-200"
@@ -1014,26 +1039,26 @@ function ImportCsvModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
         <div className="flex flex-wrap justify-between items-center gap-3 pt-4 border-t border-slate-200 dark:border-emerald-900/40">
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || !csvText.trim() || submitted}
             onClick={() => runImport(true)}
             className="px-5 py-2.5 text-sm font-semibold rounded-xl border border-slate-300 dark:border-emerald-800 bg-white dark:bg-emerald-950/40 text-slate-700 dark:text-emerald-200 hover:bg-slate-100 dark:hover:bg-emerald-900/40 shadow-xs transition cursor-pointer"
           >
             {busy && dryRun
               ? (lang === "vi" ? "Đang kiểm tra..." : "Wird geprüft...")
-              : (lang === "vi" ? "Kiểm tra trước (Dry-Run)" : "Vorabprüfung (Dry-Run)")}
+              : (lang === "vi" ? "Kiểm tra dữ liệu" : "Vorabprüfung (Dry-Run)")}
           </button>
 
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose} disabled={busy}
               className="px-5 py-2.5 text-sm font-semibold rounded-xl border border-slate-300 dark:border-emerald-800 bg-white dark:bg-emerald-950/60 text-slate-700 dark:text-emerald-200 hover:bg-slate-100 dark:hover:bg-emerald-900/40 shadow-xs transition cursor-pointer"
             >
               {lang === "vi" ? "Đóng" : "Schließen"}
             </button>
             <button
               type="button"
-              disabled={busy || !csvText.trim()}
+              disabled={busy || !csvText.trim() || submitted}
               onClick={() => runImport(false)}
               className="px-6 py-2.5 text-sm font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white shadow-md shadow-emerald-700/20 transition cursor-pointer disabled:opacity-50"
             >
@@ -1044,6 +1069,7 @@ function ImportCsvModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
           </div>
         </div>
       </div>
+      {confirmation}
     </Modal>
   );
 }

@@ -1,6 +1,7 @@
+import { useNotice } from "../lib/notice";
+import { DraftModal } from "./draft-close";
 import { useEffect, useState } from "react";
 import {
-  Calendar,
   Clock,
   CheckCircle2,
   AlertTriangle,
@@ -8,8 +9,6 @@ import {
   ShieldAlert,
   FileText,
   HeartPulse,
-  CalendarCheck,
-  AlertCircle,
   CalendarDays,
   RefreshCw,
 } from "lucide-react";
@@ -29,23 +28,17 @@ import {
   type LeaveRequest,
   type SicknessAbsence,
   type CompensatoryRest,
-  type Branch,
   api,
   type EmployeeDto,
 } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { berlinDate } from "../lib/work-time";
 
-export function LeaveView({
-  branches: _branches,
-  currentUserId: _currentUserId,
-}: {
-  branches: Branch[];
-  currentUserId?: string;
-}) {
+export function LeaveView({ canReview, canRecord, canRequest }: { canReview: boolean; canRecord: boolean; canRequest: boolean }) {
   const { lang } = useI18n();
   const [tab, setTab] = useState<"balances" | "requests" | "sickness" | "compensatory">("balances");
   const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const setToast = useNotice();
 
   // Data states
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
@@ -54,6 +47,11 @@ export function LeaveView({
   const [sicknessList, setSicknessList] = useState<SicknessAbsence[]>([]);
   const [compensatoryList, setCompensatoryList] = useState<CompensatoryRest[]>([]);
   const [employees, setEmployees] = useState<EmployeeDto[]>([]);
+  const [year, setYear] = useState(() => Number(berlinDate().slice(0, 4)));
+  const [balanceEmployeeId, setBalanceEmployeeId] = useState(0);
+  const [entitled, setEntitled] = useState("");
+  const [carried, setCarried] = useState("0");
+  const [savingBalance, setSavingBalance] = useState(false);
 
   // Modals
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -65,7 +63,6 @@ export function LeaveView({
   const [decisionNote, setDecisionNote] = useState("");
 
   // Form states
-  const [reqEmpId, setReqEmpId] = useState<number>(0);
   const [reqTypeCode, setReqTypeCode] = useState<string>("ANNUAL");
   const [reqStartDate, setReqStartDate] = useState<string>("");
   const [reqEndDate, setReqEndDate] = useState<string>("");
@@ -75,18 +72,21 @@ export function LeaveView({
   const [sickStartDate, setSickStartDate] = useState<string>("");
   const [sickEndDate, setSickEndDate] = useState<string>("");
   const [sickEauNumber, setSickEauNumber] = useState<string>("");
-  const [sickIsChild, setSickIsChild] = useState<boolean>(false);
+  const [childSick, setChildSick] = useState(false);
+  const [certificateDate, setCertificateDate] = useState("");
+  const [restDates, setRestDates] = useState<Record<number, string>>({});
 
   const loadData = async () => {
+    if ((!canReview && !canRecord && !canRequest) || year < 2000 || year > 2200) return;
     setLoading(true);
     try {
       const [tList, bList, rList, sList, cList, empList] = await Promise.all([
-        getLeaveTypes().catch(() => []),
-        getLeaveBalances().catch(() => []),
-        getLeaveRequests().catch(() => []),
-        getSicknessAbsences().catch(() => []),
-        getCompensatoryRest().catch(() => []),
-        api<EmployeeDto[]>("/api/workforce/employees").catch(() => []),
+        getLeaveTypes(),
+        getLeaveBalances(undefined, year),
+        getLeaveRequests(),
+        canRecord || canRequest ? getSicknessAbsences() : Promise.resolve([]),
+        getCompensatoryRest(),
+        canRecord ? api<EmployeeDto[]>("/workforce/employees") : Promise.resolve([]),
       ]);
       setLeaveTypes(tList);
       setBalances(bList);
@@ -96,7 +96,6 @@ export function LeaveView({
       setEmployees(empList);
 
       if (empList.length > 0) {
-        if (!reqEmpId) setReqEmpId(empList[0].employeeId);
         if (!sickEmpId) setSickEmpId(empList[0].employeeId);
       }
     } catch (e: any) {
@@ -108,17 +107,38 @@ export function LeaveView({
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [canReview, canRecord, canRequest, year]);
+
+  const saveBalance = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!balanceEmployeeId || !entitled) return;
+    setSavingBalance(true);
+    try {
+      await api("/leaves/balances", "POST", {
+        employeeId: balanceEmployeeId, year, entitledDays: Number(entitled), carriedDays: Number(carried),
+      });
+      await loadData();
+      setToast(lang === "vi" ? "Đã duyệt số dư phép." : "Urlaubskonto genehmigt.");
+    } catch (error) {
+      setToast((error as Error).message);
+    } finally {
+      setSavingBalance(false);
+    }
+  };
 
   const handleCreateRequest = async () => {
+    const leaveType = leaveTypes.find((type) => type.leaveCode === reqTypeCode);
+    if (!leaveType) {
+      setToast(lang === "vi" ? "Loại nghỉ phép đã chọn chưa được hỗ trợ!" : "Diese Urlaubsart ist nicht verfügbar!");
+      return;
+    }
     if (!reqStartDate || !reqEndDate) {
       setToast(lang === "vi" ? "Vui lòng chọn ngày bắt đầu và kết thúc!" : "Bitte Start- und Enddatum wählen!");
       return;
     }
     try {
       await createLeaveRequest({
-        employeeId: reqEmpId || undefined,
-        leaveTypeCode: reqTypeCode,
+        leaveTypeId: leaveType.leaveTypeId,
         startDate: reqStartDate,
         endDate: reqEndDate,
         reason: reqReason,
@@ -142,11 +162,15 @@ export function LeaveView({
         employeeId: sickEmpId,
         startDate: sickStartDate,
         endDate: sickEndDate,
-        eauReferenceNumber: sickEauNumber || undefined,
-        isChildSickLeave: sickIsChild,
+        documentRef: sickEauNumber || undefined,
+        hasMedicalCertificate: Boolean(sickEauNumber || certificateDate),
+        isChildSickLeave: childSick,
+        certificateDate: certificateDate || undefined,
       });
       setShowSicknessModal(false);
       setSickEauNumber("");
+      setCertificateDate("");
+      setChildSick(false);
       setToast(lang === "vi" ? "Đã ghi nhận nghỉ ốm eAU (EntgFG) thành công!" : "Krankmeldung (EntgFG) erfolgreich erfasst!");
       await loadData();
     } catch (e: any) {
@@ -158,10 +182,10 @@ export function LeaveView({
     if (!decisionModal) return;
     try {
       if (decisionModal.action === "approve") {
-        await approveLeaveRequest(decisionModal.request.requestId, decisionNote);
+        await approveLeaveRequest(decisionModal.request.leaveRequestId, decisionNote);
         setToast(lang === "vi" ? "Đã phê duyệt đơn nghỉ phép!" : "Urlaubsantrag genehmigt!");
       } else {
-        await rejectLeaveRequest(decisionModal.request.requestId, decisionNote);
+        await rejectLeaveRequest(decisionModal.request.leaveRequestId, decisionNote);
         setToast(lang === "vi" ? "Đã từ chối đơn nghỉ phép!" : "Urlaubsantrag abgelehnt!");
       }
       setDecisionModal(null);
@@ -174,7 +198,8 @@ export function LeaveView({
 
   const handleCompleteCompensatory = async (restId: number) => {
     try {
-      await completeCompensatoryRest(restId);
+      if (!restDates[restId]) return;
+      await completeCompensatoryRest(restId, restDates[restId]);
       setToast(lang === "vi" ? "Đã xác nhận bố trí ngày nghỉ bù (§ 11 ArbZG)!" : "Ersatzruhetag (§ 11 ArbZG) bestätigt!");
       await loadData();
     } catch (e: any) {
@@ -182,46 +207,72 @@ export function LeaveView({
     }
   };
 
+  const locale = lang === "vi" ? "vi-VN" : "de-DE";
+  const days = new Intl.NumberFormat(locale);
+  const expiry = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
+  const pendingDays = new Map<string, number>();
+  for (const request of requests) {
+    if (request.status !== "PENDING") continue;
+    const key = `${request.employeeId}/${request.leaveTypeId}/${request.startDate.slice(0, 4)}`;
+    pendingDays.set(key, (pendingDays.get(key) ?? 0) + request.requestedDays);
+  }
+
   return (
     <div className="space-y-6">
-      {/* Toast Notification */}
-      {toast && (
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-neutral-900 text-white px-4 py-3 rounded-lg shadow-xl border border-neutral-700 animate-fade-in">
-          <AlertCircle size={18} className="text-amber-400" />
-          <span>{toast}</span>
-          <button onClick={() => setToast(null)} className="ml-2 text-neutral-400 hover:text-white">✕</button>
+      {tab === "balances" && (canReview || canRequest) && (
+        <div className="flex flex-wrap items-end gap-3 px-4 py-3 rounded-xl border border-neutral-200 dark:border-neutral-800 text-sm">
+          <label className="grid gap-1">
+            {lang === "vi" ? "Năm phép" : "Urlaubsjahr"}
+            <input type="number" min={2000} max={2200} value={year}
+              onChange={(event) => setYear(Number(event.target.value))}
+              className="rounded-lg border px-2 py-1 dark:bg-neutral-900" />
+          </label>
+          {canRecord && (
+            <form className="flex flex-wrap items-end gap-3" onSubmit={saveBalance}>
+              <label className="grid gap-1">
+                {lang === "vi" ? "Nhân viên" : "Mitarbeiter"}
+                <select required value={balanceEmployeeId || ""} onChange={(event) => setBalanceEmployeeId(Number(event.target.value))}
+                  className="rounded-lg border px-2 py-1 dark:bg-neutral-900">
+                  <option value="">{lang === "vi" ? "Chọn nhân viên" : "Mitarbeiter wählen"}</option>
+                  {employees.map((employee) => <option key={employee.employeeId} value={employee.employeeId}>{employee.displayName}</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1">
+                {lang === "vi" ? "Ngày được cấp" : "Anspruch"}
+                <input type="number" required step="0.01" min="0" max="366" value={entitled} onChange={(event) => setEntitled(event.target.value)}
+                  className="rounded-lg border px-2 py-1 dark:bg-neutral-900" />
+              </label>
+              <label className="grid gap-1">
+                {lang === "vi" ? "Ngày chuyển sang" : "Übertrag"}
+                <input type="number" required step="0.01" min="0" max="366" value={carried} onChange={(event) => setCarried(event.target.value)}
+                  className="rounded-lg border px-2 py-1 dark:bg-neutral-900" />
+              </label>
+              <button type="submit" disabled={savingBalance} className="px-3 py-1.5 rounded-lg bg-emerald-700 text-white disabled:opacity-50">
+                {lang === "vi" ? "Duyệt số dư" : "Urlaubskonto genehmigen"}
+              </button>
+            </form>
+          )}
         </div>
       )}
 
       {/* Header & Tabs */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-neutral-200 dark:border-neutral-800 pb-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-            <CalendarCheck className="text-emerald-600" />
-            {lang === "vi" ? "Nghỉ phép, Nghỉ ốm & Nghỉ bù (F06)" : "Urlaub, Krankheit & Ersatzruhetage (F06)"}
-          </h1>
-          <p className="text-sm text-neutral-500 mt-1">
-            {lang === "vi"
-              ? "Tuân thủ Chuẩn Luật Lao động CHLB Đức (BUrlG, EntgFG, ArbZG §11)"
-              : "Rechtskonforme Abwicklung nach deutschem Arbeitsrecht (BUrlG, EntgFG, § 11 ArbZG)"}
-          </p>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <button
+        <div className="flex flex-wrap items-center gap-2">
+          {canRequest && (          <button
             onClick={() => setShowRequestModal(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium shadow-sm transition"
           >
             <Plus size={16} />
             {lang === "vi" ? "Nộp đơn xin nghỉ" : "Urlaubsantrag stellen"}
-          </button>
-          <button
+          </button>)}
+          {canRecord && (          <button
             onClick={() => setShowSicknessModal(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-medium shadow-sm transition"
           >
             <HeartPulse size={16} />
             {lang === "vi" ? "Ghi nhận nghỉ ốm eAU" : "Krankmeldung (eAU)"}
-          </button>
+          </button>)}
           <button
             onClick={loadData}
             className="p-2 border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition"
@@ -233,7 +284,7 @@ export function LeaveView({
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex gap-2 border-b border-neutral-200 dark:border-neutral-800 pb-2">
+      <div className="flex flex-wrap gap-2 border-b border-neutral-200 dark:border-neutral-800 pb-2">
         <button
           onClick={() => setTab("balances")}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
@@ -285,9 +336,9 @@ export function LeaveView({
         >
           <Clock size={16} />
           {lang === "vi" ? "Hạn nghỉ bù (§ 11 ArbZG)" : "Ersatzruhetage (§ 11 ArbZG)"}
-          {compensatoryList.filter(c => !c.isCompleted && c.isOverdue).length > 0 && (
+          {compensatoryList.filter(c => c.status !== "COMPLETED" && c.isOverdue).length > 0 && (
             <span className="ml-1 px-1.5 py-0.5 text-xs bg-rose-500 text-white rounded-full">
-              {compensatoryList.filter(c => !c.isCompleted && c.isOverdue).length}
+              {compensatoryList.filter(c => c.status !== "COMPLETED" && c.isOverdue).length}
             </span>
           )}
         </button>
@@ -313,7 +364,7 @@ export function LeaveView({
               <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
                 {lang === "vi" ? "Hạn chuyển phép dư (Übertrag)" : "Verfall & Übertragungsfrist"}
               </span>
-              <p className="text-2xl font-bold text-amber-600 mt-1">31. März 2027</p>
+              <p className="text-2xl font-bold text-amber-600 mt-1">{expiry.format(new Date(Date.UTC(year + 1, 2, 31)))}</p>
               <p className="text-xs text-neutral-500 mt-1">
                 {lang === "vi"
                   ? "Phép tồn năm trước được bảo lưu tối đa đến hết ngày 31/03 năm kế tiếp theo §7(3) BUrlG."
@@ -334,65 +385,44 @@ export function LeaveView({
             </div>
           </div>
 
-          {/* Balance Table */}
-          <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden shadow-sm">
-            <div className="px-5 py-4 border-b border-neutral-200 dark:border-neutral-800 flex justify-between items-center">
-              <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">
-                {lang === "vi" ? "Bảng theo dõi số dư phép nhân sự (Năm 2026)" : "Urlaubskonten der Mitarbeitenden (2026)"}
-              </h3>
-              <span className="text-xs text-neutral-500">
-                {balances.length} {lang === "vi" ? "bản ghi" : "Einträge"}
-              </span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-neutral-50 dark:bg-neutral-800/50 text-neutral-500 text-xs uppercase tracking-wider">
-                  <tr>
-                    <th className="px-5 py-3">{lang === "vi" ? "Mã NV" : "Mitarbeiter-ID"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Loại phép" : "Urlaubsart"}</th>
-                    <th className="px-5 py-3 text-right">{lang === "vi" ? "Được hưởng" : "Anspruch"}</th>
-                    <th className="px-5 py-3 text-right">{lang === "vi" ? "Chuyển sang" : "Übertrag"}</th>
-                    <th className="px-5 py-3 text-right">{lang === "vi" ? "Đã nghỉ" : "Genommen"}</th>
-                    <th className="px-5 py-3 text-right">{lang === "vi" ? "Đang chờ duyệt" : "Beantragt"}</th>
-                    <th className="px-5 py-3 text-right font-bold text-emerald-600">{lang === "vi" ? "Còn lại" : "Resturlaub"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Hạn sử dụng" : "Verfall"}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
-                  {balances.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-5 py-8 text-center text-neutral-500">
-                        {lang === "vi" ? "Chưa có dữ liệu số dư phép" : "Keine Urlaubskonten vorhanden"}
-                      </td>
+          <section className="balance-panel">
+            <header className="data-table-heading">
+              <div>
+                <h3 id="balance-table-title">{lang === "vi" ? `Số dư phép nhân viên · ${year}` : `Urlaubskonten · ${year}`}</h3>
+                <p>{lang === "vi" ? "Đơn vị tính bằng ngày" : "Angaben in Tagen"}</p>
+              </div>
+              <span>{balances.length} {lang === "vi" ? "bản ghi" : "Einträge"}</span>
+            </header>
+            <div className="table-scroll" role="region" aria-labelledby="balance-table-title" tabIndex={0}>
+              <table aria-labelledby="balance-table-title" className="balance-table">
+                <thead><tr>
+                  <th scope="col">{lang === "vi" ? "Nhân viên" : "Mitarbeiter"}</th>
+                  <th scope="col">{lang === "vi" ? "Loại phép" : "Urlaubsart"}</th>
+                  <th scope="col">{lang === "vi" ? "Được hưởng" : "Anspruch"}</th>
+                  <th scope="col">{lang === "vi" ? "Chuyển sang" : "Übertrag"}</th>
+                  <th scope="col">{lang === "vi" ? "Đã nghỉ" : "Genommen"}</th>
+                  <th scope="col">{lang === "vi" ? "Đang chờ duyệt" : "Beantragt"}</th>
+                  <th scope="col">{lang === "vi" ? "Còn lại" : "Resturlaub"}</th>
+                  <th scope="col">{lang === "vi" ? "Hạn sử dụng" : "Verfall"}</th>
+                </tr></thead>
+                <tbody>
+                  {balances.length === 0 && <tr><td colSpan={8}>{lang === "vi" ? "Chưa có dữ liệu số dư phép" : "Keine Urlaubskonten vorhanden"}</td></tr>}
+                  {balances.map(b => (
+                    <tr key={b.balanceId}>
+                      <th scope="row"><span className="table-prose">{b.employeeName}</span><small className="table-subline">{b.employeeCode}</small></th>
+                      <td><span className="table-prose">{b.leaveTypeName}</span></td>
+                      <td>{days.format(b.entitledDays)}</td>
+                      <td>{days.format(b.carriedDays)}</td>
+                      <td>{days.format(b.usedDays)}</td>
+                      <td>{days.format(pendingDays.get(`${b.employeeId}/${b.leaveTypeId}/${b.leaveYear}`) ?? 0)}</td>
+                      <td className="balance-remaining">{days.format(b.remainingDays)}</td>
+                      <td>{b.expiryDate ? expiry.format(new Date(b.expiryDate + "T00:00:00Z")) : "—"}</td>
                     </tr>
-                  ) : (
-                    balances.map((b) => (
-                      <tr key={b.balanceId} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/40">
-                        <td className="px-5 py-3 font-medium text-neutral-900 dark:text-neutral-100">
-                          EMP-{b.employeeId}
-                        </td>
-                        <td className="px-5 py-3">
-                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-neutral-100 dark:bg-neutral-800">
-                            {b.leaveTypeNameVi || b.leaveTypeCode}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3 text-right">{b.entitledDays} {lang === "vi" ? "ngày" : "T."}</td>
-                        <td className="px-5 py-3 text-right text-neutral-500">+{b.carriedOverDays}</td>
-                        <td className="px-5 py-3 text-right text-neutral-500">-{b.takenDays}</td>
-                        <td className="px-5 py-3 text-right text-amber-600">{b.pendingDays}</td>
-                        <td className="px-5 py-3 text-right font-bold text-emerald-600 dark:text-emerald-400">
-                          {b.remainingDays} {lang === "vi" ? "ngày" : "Tage"}
-                        </td>
-                        <td className="px-5 py-3 text-neutral-500 text-xs">
-                          {b.expiryDate ? b.expiryDate : "31.12.2026"}
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                  ))}
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
         </div>
       )}
 
@@ -424,23 +454,23 @@ export function LeaveView({
               </span>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-neutral-50 dark:bg-neutral-800/50 text-neutral-500 text-xs uppercase tracking-wider">
+              <table className="w-full">
+                <thead className="bg-neutral-50 dark:bg-neutral-800/50 text-neutral-500">
                   <tr>
-                    <th className="px-5 py-3">{lang === "vi" ? "Mã đơn" : "ID"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Nhân viên" : "Mitarbeiter"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Loại nghỉ" : "Art"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Thời gian" : "Zeitraum"}</th>
-                    <th className="px-5 py-3 text-right">{lang === "vi" ? "Số ngày" : "Tage"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Lý do" : "Grund"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Trạng thái" : "Status"}</th>
-                    <th className="px-5 py-3 text-right">{lang === "vi" ? "Thao tác" : "Aktionen"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Mã đơn" : "ID"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Nhân viên" : "Mitarbeiter"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Loại nghỉ" : "Art"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Thời gian" : "Zeitraum"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Số ngày" : "Tage"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Lý do" : "Grund"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Trạng thái" : "Status"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Thao tác" : "Aktionen"}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
                   {requests.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-5 py-8 text-center text-neutral-500">
+                      <td colSpan={8} className="px-5 py-8 text-neutral-500">
                         {lang === "vi" ? "Chưa có đơn xin nghỉ phép nào" : "Keine Urlaubsanträge vorhanden"}
                       </td>
                     </tr>
@@ -448,62 +478,62 @@ export function LeaveView({
                     requests.map((r) => {
                       const isPending = r.status === "PENDING";
                       return (
-                        <tr key={r.requestId} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/40">
-                          <td className="px-5 py-3 font-mono text-xs">#{r.requestId}</td>
+                        <tr key={r.leaveRequestId} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/40">
+                          <td className="px-5 py-3">#{r.leaveRequestId}</td>
                           <td className="px-5 py-3">
-                            <span className="font-medium text-neutral-900 dark:text-neutral-100">{r.employeeName}</span>
-                            <span className="block text-xs text-neutral-400">{r.employeeCode}</span>
+                            <span className="table-prose font-medium text-neutral-900 dark:text-neutral-100">{r.employeeName}</span>
+                            <span className="block text-neutral-400">{r.employeeCode}</span>
                           </td>
                           <td className="px-5 py-3">
-                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-neutral-100 dark:bg-neutral-800">
-                              {r.leaveTypeNameVi || r.leaveTypeCode}
+                            <span className="px-2 py-0.5 rounded font-medium bg-neutral-100 dark:bg-neutral-800">
+                              {r.leaveTypeName || r.leaveTypeCode}
                             </span>
                           </td>
-                          <td className="px-5 py-3 text-xs">
+                          <td className="px-5 py-3">
                             {r.startDate} ➔ {r.endDate}
                           </td>
-                          <td className="px-5 py-3 text-right font-medium">
-                            {r.totalDays} {lang === "vi" ? "ngày" : "T."}
+                          <td className="px-5 py-3 font-medium">
+                            {r.requestedDays} {lang === "vi" ? "ngày" : "T."}
                           </td>
-                          <td className="px-5 py-3 text-xs text-neutral-500 max-w-[200px] truncate">
+                          <td className="table-note">
                             {r.reason || "—"}
                           </td>
                           <td className="px-5 py-3">
                             {r.status === "PENDING" && (
-                              <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-400">
+                              <span className="px-2.5 py-1 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-400">
                                 {lang === "vi" ? "Chờ duyệt" : "Ausstehend"}
                               </span>
                             )}
                             {r.status === "APPROVED" && (
-                              <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400">
+                              <span className="px-2.5 py-1 rounded-full font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400">
                                 {lang === "vi" ? "Đã duyệt" : "Genehmigt"}
                               </span>
                             )}
                             {r.status === "REJECTED" && (
-                              <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-400">
+                              <span className="px-2.5 py-1 rounded-full font-medium bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-400">
                                 {lang === "vi" ? "Từ chối" : "Abgelehnt"}
                               </span>
                             )}
                           </td>
-                          <td className="px-5 py-3 text-right">
-                            {isPending ? (
-                              <div className="flex items-center justify-end gap-1.5">
+                          <td className="px-5 py-3">
+                            {isPending && canReview ? (
+                              <div className="flex items-center gap-1.5">
                                 <button
                                   onClick={() => setDecisionModal({ request: r, action: "approve" })}
-                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium transition"
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium transition"
                                 >
                                   {lang === "vi" ? "Duyệt" : "Genehmigen"}
                                 </button>
                                 <button
                                   onClick={() => setDecisionModal({ request: r, action: "reject" })}
-                                  className="px-2.5 py-1 bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 rounded text-xs font-medium transition"
+                                  className="px-2.5 py-1 bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 rounded font-medium transition"
                                 >
                                   {lang === "vi" ? "Từ chối" : "Ablehnen"}
                                 </button>
                               </div>
                             ) : (
-                              <span className="text-xs text-neutral-400">
-                                {r.decidedByUserName ? `${r.decidedByUserName}` : "—"}
+                              <span className="text-neutral-400">
+                                {r.reviewedByName ? `${r.reviewedByName}` : isPending ? (lang === "vi" ? "Đang chờ duyệt" : "Ausstehend") : "—"}
                               </span>
                             )}
                           </td>
@@ -545,52 +575,44 @@ export function LeaveView({
               </span>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-neutral-50 dark:bg-neutral-800/50 text-neutral-500 text-xs uppercase tracking-wider">
+              <table className="w-full">
+                <thead className="bg-neutral-50 dark:bg-neutral-800/50 text-neutral-500">
                   <tr>
-                    <th className="px-5 py-3">{lang === "vi" ? "Mã hồ sơ" : "ID"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Nhân viên" : "Mitarbeiter"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Thời gian nghỉ" : "Zeitraum"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Mã xác thực eAU" : "eAU-Referenz"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Phân loại" : "Art"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Hưởng lương 100% (EntgFG)" : "Entgeltfortzahlung"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Trạng thái" : "Status"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Mã hồ sơ" : "ID"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Nhân viên" : "Mitarbeiter"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Thời gian nghỉ" : "Zeitraum"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Mã xác thực eAU" : "eAU-Referenz"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Phân loại" : "Art"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Hưởng lương 100% (EntgFG)" : "Entgeltfortzahlung"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Trạng thái" : "Status"}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
                   {sicknessList.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-8 text-center text-neutral-500">
+                      <td colSpan={7} className="px-5 py-8 text-neutral-500">
                         {lang === "vi" ? "Chưa có bản ghi nghỉ ốm nào" : "Keine Krankmeldungen vorhanden"}
                       </td>
                     </tr>
                   ) : (
                     sicknessList.map((s) => (
                       <tr key={s.absenceId} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/40">
-                        <td className="px-5 py-3 font-mono text-xs">#{s.absenceId}</td>
+                        <td className="px-5 py-3">#{s.absenceId}</td>
                         <td className="px-5 py-3">
                           <span className="font-medium text-neutral-900 dark:text-neutral-100">{s.employeeName}</span>
-                          <span className="block text-xs text-neutral-400">{s.employeeCode}</span>
+                          <span className="block text-neutral-400">{s.employeeCode}</span>
                         </td>
-                        <td className="px-5 py-3 text-xs">
+                        <td className="px-5 py-3">
                           {s.startDate} ➔ {s.endDate}
                         </td>
-                        <td className="px-5 py-3 font-mono text-xs text-neutral-600 dark:text-neutral-400">
-                          {s.eauReferenceNumber || "eAU-AUTOMATIC"}
+                        <td className="px-5 py-3 text-neutral-600 dark:text-neutral-400">
+                          {s.confidentialDocumentRef || "—"}
                         </td>
-                        <td className="px-5 py-3 text-xs">
-                          {s.isChildSickLeave ? (
-                            <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300">
-                              {lang === "vi" ? "Nghỉ chăm con ốm" : "Kind krank"}
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
-                              {lang === "vi" ? "Nghỉ ốm cá nhân" : "Arbeitsunfähig"}
-                            </span>
-                          )}
+                        <td className="px-5 py-3">
+                          {s.isChildSickLeave ? (lang === "vi" ? "Chăm con ốm" : "Kind krank") : (lang === "vi" ? "Nghỉ ốm" : "Krankheit")}
                         </td>
-                        <td className="px-5 py-3 text-xs">
-                          {s.continuedPayEligible ? (
+                        <td className="px-5 py-3">
+                          {s.isContinuedPayEligible ? (
                             <span className="inline-flex items-center gap-1 text-emerald-600 font-medium">
                               <CheckCircle2 size={14} />
                               {lang === "vi" ? "Đủ điều kiện 100% lương" : "100 % fortzahlungspflichtig"}
@@ -601,9 +623,9 @@ export function LeaveView({
                             </span>
                           )}
                         </td>
-                        <td className="px-5 py-3 text-xs">
+                        <td className="px-5 py-3">
                           <span className="px-2 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 font-medium">
-                            {s.status}
+                            {s.verificationStatus}
                           </span>
                         </td>
                       </tr>
@@ -643,36 +665,36 @@ export function LeaveView({
               </span>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-neutral-50 dark:bg-neutral-800/50 text-neutral-500 text-xs uppercase tracking-wider">
+              <table className="w-full">
+                <thead className="bg-neutral-50 dark:bg-neutral-800/50 text-neutral-500">
                   <tr>
-                    <th className="px-5 py-3">{lang === "vi" ? "Mã số" : "ID"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Nhân viên" : "Mitarbeiter"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Ngày làm việc" : "Einsatztag"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Nguồn phát sinh" : "Grund"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Hạn chót luật định" : "Ausschlussfrist"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Thời hạn còn lại" : "Verbleibende Frist"}</th>
-                    <th className="px-5 py-3">{lang === "vi" ? "Tình trạng" : "Status"}</th>
-                    <th className="px-5 py-3 text-right">{lang === "vi" ? "Thao tác" : "Aktionen"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Mã số" : "ID"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Nhân viên" : "Mitarbeiter"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Ngày làm việc" : "Einsatztag"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Nguồn phát sinh" : "Grund"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Hạn chót luật định" : "Ausschlussfrist"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Thời hạn còn lại" : "Verbleibende Frist"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Tình trạng" : "Status"}</th>
+                    <th scope="col" className="px-5 py-3">{lang === "vi" ? "Thao tác" : "Aktionen"}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
                   {compensatoryList.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-5 py-8 text-center text-neutral-500">
+                      <td colSpan={8} className="px-5 py-8 text-neutral-500">
                         {lang === "vi" ? "Không có nghĩa vụ nghỉ bù nào đang chờ xử lý" : "Keine offenen Ausgleichstage vorhanden"}
                       </td>
                     </tr>
                   ) : (
                     compensatoryList.map((c) => (
                       <tr key={c.restId} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/40">
-                        <td className="px-5 py-3 font-mono text-xs">#{c.restId}</td>
+                        <td className="px-5 py-3">#{c.restId}</td>
                         <td className="px-5 py-3 font-medium text-neutral-900 dark:text-neutral-100">
                           {c.employeeName || `EMP-${c.employeeId}`}
                         </td>
-                        <td className="px-5 py-3 text-xs">{c.workedDate}</td>
-                        <td className="px-5 py-3 text-xs">
-                          {c.sourceType === "SUNDAY" ? (
+                        <td className="px-5 py-3">{c.relatedWorkDate}</td>
+                        <td className="px-5 py-3">
+                          {c.restKind === "SUNDAY_COMPENSATION" ? (
                             <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
                               {lang === "vi" ? "Chủ nhật (2 tuần)" : "Sonntag (2 W.)"}
                             </span>
@@ -682,27 +704,27 @@ export function LeaveView({
                             </span>
                           )}
                         </td>
-                        <td className="px-5 py-3 text-xs font-mono">{c.deadlineDate}</td>
-                        <td className="px-5 py-3 text-xs font-medium">
-                          {c.isCompleted ? (
+                        <td className="px-5 py-3">{c.deadlineDate}</td>
+                        <td className="px-5 py-3 font-medium">
+                          {c.status === "COMPLETED" ? (
                             <span className="text-neutral-400">{lang === "vi" ? "Đã xong" : "Erledigt"}</span>
                           ) : c.isOverdue ? (
                             <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-400 font-bold flex items-center gap-1 w-fit">
                               <AlertTriangle size={12} />
                               {lang === "vi" ? "Quá hạn!" : "Überfällig!"}
                             </span>
-                          ) : c.daysRemaining <= 5 ? (
+                          ) : c.daysUntilDeadline <= 5 ? (
                             <span className="text-amber-600 font-bold">
-                              {lang === "vi" ? `Còn ${c.daysRemaining} ngày` : `Noch ${c.daysRemaining} T.`}
+                              {lang === "vi" ? `Còn ${c.daysUntilDeadline} ngày` : `Noch ${c.daysUntilDeadline} T.`}
                             </span>
                           ) : (
                             <span className="text-emerald-600">
-                              {lang === "vi" ? `Còn ${c.daysRemaining} ngày` : `Noch ${c.daysRemaining} T.`}
+                              {lang === "vi" ? `Còn ${c.daysUntilDeadline} ngày` : `Noch ${c.daysUntilDeadline} T.`}
                             </span>
                           )}
                         </td>
-                        <td className="px-5 py-3 text-xs">
-                          {c.isCompleted ? (
+                        <td className="px-5 py-3">
+                          {c.status === "COMPLETED" ? (
                             <span className="inline-flex items-center gap-1 text-emerald-600 font-medium">
                               <CheckCircle2 size={14} />
                               {lang === "vi" ? "Đã bố trí nghỉ" : "Gewährt"}
@@ -713,14 +735,18 @@ export function LeaveView({
                             </span>
                           )}
                         </td>
-                        <td className="px-5 py-3 text-right">
-                          {!c.isCompleted && (
+                        <td className="px-5 py-3">
+                          {canReview && c.status !== "COMPLETED" && (
+                            <>
+                            <input type="date" aria-label={lang === "vi" ? "Ngày nghỉ bù" : "Ersatzruhetag"}
+                              value={restDates[c.restId] ?? ""} onChange={(e) => setRestDates({ ...restDates, [c.restId]: e.target.value })} />
                             <button
                               onClick={() => handleCompleteCompensatory(c.restId)}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium transition"
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium transition"
                             >
                               {lang === "vi" ? "Xác nhận đã nghỉ" : "Als gewährt markieren"}
                             </button>
+                            </>
                           )}
                         </td>
                       </tr>
@@ -735,66 +761,54 @@ export function LeaveView({
 
       {/* Modal: New Leave Request */}
       {showRequestModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 max-w-md w-full p-6 shadow-2xl space-y-4 animate-scale-up">
-            <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-              <Calendar className="text-emerald-600" />
-              {lang === "vi" ? "Tạo đơn xin nghỉ phép" : "Neuen Urlaubsantrag stellen"}
-            </h3>
+        <DraftModal title={lang === "vi" ? "Tạo đơn xin nghỉ phép" : "Neuen Urlaubsantrag stellen"}
+          action={lang === "vi" ? "Gửi đơn" : "Antrag einreichen"} values={[reqTypeCode, reqStartDate, reqEndDate, reqReason]} onSubmit={handleCreateRequest}
+          onClose={() => { setShowRequestModal(false); setReqTypeCode("ANNUAL"); setReqStartDate(""); setReqEndDate(""); setReqReason(""); }}>
+          <div className="space-y-3 text-sm">
 
-            <div className="space-y-3 text-sm">
+
               <div>
-                <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
-                  {lang === "vi" ? "Nhân viên" : "Mitarbeiter"}
-                </label>
-                <select
-                  value={reqEmpId}
-                  onChange={(e) => setReqEmpId(Number(e.target.value))}
+                <label htmlFor="leave-reqTypeCode" className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
+              {lang === "vi" ? "Loại nghỉ" : "Urlaubsart"}
+            </label>
+                <select id="leave-reqTypeCode"
+                  value={reqTypeCode}
+                  onChange={(e) => setReqTypeCode(e.target.value)}
                   className="w-full px-3 py-2 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg"
                 >
-                  {employees.map((e) => (
-                    <option key={e.employeeId} value={e.employeeId}>
-                      {e.displayName} ({e.employeeCode})
+                  {(leaveTypes.length > 0
+                    ? leaveTypes.filter((t) => !["SICK", "CHILD_SICK", "COMP_REST"].includes(t.leaveCode))
+                    : [
+                        { leaveCode: "ANNUAL", nameVi: "Nghỉ phép năm (BUrlG)", nameDe: "Erholungsurlaub (BUrlG)" },
+                        { leaveCode: "UNPAID", nameVi: "Nghỉ không lương", nameDe: "Unbezahlter Urlaub" },
+                      ]
+                  ).map((t) => (
+                    <option key={t.leaveCode} value={t.leaveCode}>
+                      {lang === "vi" ? t.nameVi || t.nameDe : t.nameDe}
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
-                  {lang === "vi" ? "Loại nghỉ" : "Urlaubsart"}
-                </label>
-                <select
-                  value={reqTypeCode}
-                  onChange={(e) => setReqTypeCode(e.target.value)}
-                  className="w-full px-3 py-2 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg"
-                >
-                  <option value="ANNUAL">{lang === "vi" ? "Nghỉ phép năm (BUrlG)" : "Erholungsurlaub (BUrlG)"}</option>
-                  <option value="SPECIAL">{lang === "vi" ? "Nghỉ việc riêng (§616 BGB)" : "Sonderurlaub (§ 616 BGB)"}</option>
-                  <option value="UNPAID">{lang === "vi" ? "Nghỉ không lương" : "Unbezahlter Urlaub"}</option>
-                  <option value="EDUCATION">{lang === "vi" ? "Nghỉ đào tạo (Bildungsurlaub)" : "Bildungsurlaub"}</option>
-                </select>
-              </div>
-
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
-                    {lang === "vi" ? "Từ ngày" : "Von"}
-                  </label>
-                  <input
+                  <label htmlFor="leave-reqStartDate" className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
+              {lang === "vi" ? "Từ ngày" : "Von"}
+            </label>
+                  <input id="leave-reqStartDate"
                     type="date"
-                    value={reqStartDate}
+                    required value={reqStartDate}
                     onChange={(e) => setReqStartDate(e.target.value)}
                     className="w-full px-3 py-2 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
-                    {lang === "vi" ? "Đến ngày" : "Bis"}
-                  </label>
-                  <input
+                  <label htmlFor="leave-reqEndDate" className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
+              {lang === "vi" ? "Đến ngày" : "Bis"}
+            </label>
+                  <input id="leave-reqEndDate"
                     type="date"
-                    value={reqEndDate}
+                    required min={reqStartDate} value={reqEndDate}
                     onChange={(e) => setReqEndDate(e.target.value)}
                     className="w-full px-3 py-2 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg"
                   />
@@ -802,10 +816,10 @@ export function LeaveView({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
-                  {lang === "vi" ? "Lý do xin nghỉ" : "Begründung"}
-                </label>
-                <textarea
+                <label htmlFor="leave-reqReason" className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
+              {lang === "vi" ? "Lý do xin nghỉ" : "Begründung"}
+            </label>
+                <textarea id="leave-reqReason"
                   value={reqReason}
                   onChange={(e) => setReqReason(e.target.value)}
                   rows={2}
@@ -814,40 +828,20 @@ export function LeaveView({
                 />
               </div>
             </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setShowRequestModal(false)}
-                className="px-4 py-2 border border-neutral-300 dark:border-neutral-700 rounded-lg text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
-              >
-                {lang === "vi" ? "Hủy" : "Abbrechen"}
-              </button>
-              <button
-                onClick={handleCreateRequest}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition"
-              >
-                {lang === "vi" ? "Gửi đơn" : "Antrag einreichen"}
-              </button>
-            </div>
-          </div>
-        </div>
+        </DraftModal>
       )}
 
       {/* Modal: New Sickness Absence */}
       {showSicknessModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 max-w-md w-full p-6 shadow-2xl space-y-4 animate-scale-up">
-            <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-              <HeartPulse className="text-rose-600" />
-              {lang === "vi" ? "Ghi nhận Nghỉ ốm eAU (EntgFG)" : "Krankmeldung erfassen (eAU)"}
-            </h3>
-
-            <div className="space-y-3 text-sm">
+        <DraftModal title={lang === "vi" ? "Ghi nhận Nghỉ ốm eAU (EntgFG)" : "Krankmeldung erfassen (eAU)"}
+          action={lang === "vi" ? "Lưu nghỉ ốm" : "Krankmeldung speichern"} values={[sickEmpId, sickStartDate, sickEndDate, sickEauNumber, childSick, certificateDate]} onSubmit={handleRecordSickness}
+          onClose={() => { setShowSicknessModal(false); setSickEmpId(employees[0]?.employeeId ?? 0); setSickStartDate(""); setSickEndDate(""); setSickEauNumber(""); setChildSick(false); setCertificateDate(""); }}>
+          <div className="space-y-3 text-sm">
               <div>
-                <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
-                  {lang === "vi" ? "Nhân viên" : "Mitarbeiter"}
-                </label>
-                <select
+                <label htmlFor="leave-sickEmpId" className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
+              {lang === "vi" ? "Nhân viên" : "Mitarbeiter"}
+            </label>
+                <select id="leave-sickEmpId"
                   value={sickEmpId}
                   onChange={(e) => setSickEmpId(Number(e.target.value))}
                   className="w-full px-3 py-2 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg"
@@ -862,23 +856,23 @@ export function LeaveView({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
-                    {lang === "vi" ? "Từ ngày" : "Von"}
-                  </label>
-                  <input
+                  <label htmlFor="leave-sickStartDate" className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
+              {lang === "vi" ? "Từ ngày" : "Von"}
+            </label>
+                  <input id="leave-sickStartDate"
                     type="date"
-                    value={sickStartDate}
+                    required value={sickStartDate}
                     onChange={(e) => setSickStartDate(e.target.value)}
                     className="w-full px-3 py-2 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
-                    {lang === "vi" ? "Đến ngày" : "Bis"}
-                  </label>
-                  <input
+                  <label htmlFor="leave-sickEndDate" className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
+              {lang === "vi" ? "Đến ngày" : "Bis"}
+            </label>
+                  <input id="leave-sickEndDate"
                     type="date"
-                    value={sickEndDate}
+                    required min={sickStartDate} value={sickEndDate}
                     onChange={(e) => setSickEndDate(e.target.value)}
                     className="w-full px-3 py-2 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg"
                   />
@@ -886,10 +880,10 @@ export function LeaveView({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
-                  {lang === "vi" ? "Mã tra cứu eAU từ BHYT (Tùy chọn)" : "eAU-Referenznummer (Krankenkasse)"}
-                </label>
-                <input
+                <label htmlFor="leave-sickEauNumber" className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
+              {lang === "vi" ? "Mã tra cứu eAU từ BHYT (Tùy chọn)" : "eAU-Referenznummer (Krankenkasse)"}
+            </label>
+                <input id="leave-sickEauNumber"
                   type="text"
                   value={sickEauNumber}
                   onChange={(e) => setSickEauNumber(e.target.value)}
@@ -898,65 +892,43 @@ export function LeaveView({
                 />
               </div>
 
-              <div className="flex items-center gap-2 pt-1">
-                <input
-                  type="checkbox"
-                  id="childSick"
-                  checked={sickIsChild}
-                  onChange={(e) => setSickIsChild(e.target.checked)}
-                  className="rounded text-rose-600 focus:ring-rose-500"
-                />
-                <label htmlFor="childSick" className="text-xs text-neutral-700 dark:text-neutral-300">
-                  {lang === "vi" ? "Nghỉ chăm con ốm (Kind krank)" : "Kind krank (Kinderpflege-Krankengeld)"}
-                </label>
-              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={childSick} onChange={(e) => setChildSick(e.target.checked)} />
+                {lang === "vi" ? "Nghỉ chăm con ốm" : "Kind krank"}
+              </label>
+              <label className="block text-sm">
+                {lang === "vi" ? "Ngày chứng từ" : "Nachweisdatum"}
+                <input type="date" value={certificateDate} onChange={(e) => setCertificateDate(e.target.value)}
+                  className="block w-full px-3 py-2 border rounded-lg dark:bg-neutral-800" />
+              </label>
 
               <div className="p-3 bg-neutral-100 dark:bg-neutral-800/60 rounded-lg text-xs text-neutral-500">
                 {lang === "vi"
-                  ? "✓ Tuân thủ DSGVO: Không lưu chẩn đoán y tế. Tự động hủy các ca làm việc bị trùng lặp trong lịch."
-                  : "✓ DSGVO-konform: Keine Diagnose-Speicherung. Dienstplan-Schichten im Zeitraum werden storniert."}
+                  ? "Chỉ nhập thông tin chứng từ cần thiết. Các ca trùng khoảng nghỉ sẽ được cập nhật."
+                  : "Nur erforderliche Nachweisdaten eingeben. Betroffene Schichten werden aktualisiert."}
               </div>
             </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setShowSicknessModal(false)}
-                className="px-4 py-2 border border-neutral-300 dark:border-neutral-700 rounded-lg text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
-              >
-                {lang === "vi" ? "Hủy" : "Abbrechen"}
-              </button>
-              <button
-                onClick={handleRecordSickness}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-medium transition"
-              >
-                {lang === "vi" ? "Lưu hồ sơ nghỉ ốm" : "Krankmeldung speichern"}
-              </button>
-            </div>
-          </div>
-        </div>
+        </DraftModal>
       )}
 
       {/* Modal: Approval / Rejection Decision */}
       {decisionModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 max-w-md w-full p-6 shadow-2xl space-y-4 animate-scale-up">
-            <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">
-              {decisionModal.action === "approve"
+        <DraftModal title={decisionModal.action === "approve"
                 ? (lang === "vi" ? "Phê duyệt đơn xin nghỉ phép" : "Urlaubsantrag genehmigen")
                 : (lang === "vi" ? "Từ chối đơn xin nghỉ phép" : "Urlaubsantrag ablehnen")}
-            </h3>
-
-            <div className="p-3 bg-neutral-100 dark:bg-neutral-800 rounded-lg text-xs space-y-1">
+          action={decisionModal.action === "approve" ? (lang === "vi" ? "Xác nhận duyệt" : "Genehmigen") : (lang === "vi" ? "Từ chối" : "Ablehnen")} values={[decisionNote]} onSubmit={handleDecision}
+          onClose={() => { setDecisionModal(null); setDecisionNote(""); }}>
+          <div className="p-3 bg-neutral-100 dark:bg-neutral-800 rounded-lg text-xs space-y-1">
               <p><strong>{lang === "vi" ? "Nhân viên:" : "Mitarbeiter:"}</strong> {decisionModal.request.employeeName} ({decisionModal.request.employeeCode})</p>
-              <p><strong>{lang === "vi" ? "Thời gian:" : "Zeitraum:"}</strong> {decisionModal.request.startDate} ➔ {decisionModal.request.endDate} ({decisionModal.request.totalDays} {lang === "vi" ? "ngày" : "Tage"})</p>
+              <p><strong>{lang === "vi" ? "Thời gian:" : "Zeitraum:"}</strong> {decisionModal.request.startDate} ➔ {decisionModal.request.endDate} ({decisionModal.request.requestedDays} {lang === "vi" ? "ngày" : "Tage"})</p>
               <p><strong>{lang === "vi" ? "Lý do:" : "Grund:"}</strong> {decisionModal.request.reason || "—"}</p>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
-                {lang === "vi" ? "Ghi chú phê duyệt / lý do từ chối" : "Entscheidungsbegründung"}
-              </label>
-              <textarea
+              <label htmlFor="leave-decisionNote" className="block text-xs font-semibold text-neutral-500 uppercase mb-1">
+              {lang === "vi" ? "Ghi chú phê duyệt / lý do từ chối" : "Entscheidungsbegründung"}
+            </label>
+              <textarea id="leave-decisionNote"
                 value={decisionNote}
                 onChange={(e) => setDecisionNote(e.target.value)}
                 rows={2}
@@ -964,27 +936,7 @@ export function LeaveView({
                 className="w-full px-3 py-2 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg text-sm"
               />
             </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setDecisionModal(null)}
-                className="px-4 py-2 border border-neutral-300 dark:border-neutral-700 rounded-lg text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
-              >
-                {lang === "vi" ? "Hủy" : "Abbrechen"}
-              </button>
-              <button
-                onClick={handleDecision}
-                className={`px-4 py-2 text-white rounded-lg text-sm font-medium transition ${
-                  decisionModal.action === "approve" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-rose-600 hover:bg-rose-700"
-                }`}
-              >
-                {decisionModal.action === "approve"
-                  ? (lang === "vi" ? "Xác nhận duyệt" : "Genehmigen")
-                  : (lang === "vi" ? "Xác nhận từ chối" : "Ablehnen")}
-              </button>
-            </div>
-          </div>
-        </div>
+        </DraftModal>
       )}
     </div>
   );
